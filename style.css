@@ -441,3 +441,8 @@ button:active{transform:scale(.97)}
 :root:not([data-theme=dark]) .grab{background:#EBA3C2}
 :root:not([data-theme=dark]) .list button.opt{border-bottom-color:#F2BCD3}
 :root:not([data-theme=dark]) #toast{background:linear-gradient(135deg,#6B1B4A,#4A0F33)}
+
+/* saldo */
+.bigv{font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.card.saldo{margin-top:0}
+.sheet input[name=v]{font-size:20px;font-weight:600}

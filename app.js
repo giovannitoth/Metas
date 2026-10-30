@@ -546,6 +546,30 @@ function vProj() {
   </section>`;
 }
 
+function vSaldo() {
+  const b = balances();
+  return `<div class="card saldo"><div class="row"><div><small>Saldo livre atual</small><div class="bigv ${b.livre < 0 ? 'neg' : ''}">${fmt(b.livre)}</div></div>
+    <button class="pri sm" data-a="saldo">+ Registrar saldo</button></div>
+    <div class="mut note" style="margin:8px 0 0">Informe quanto você já tem na conta para começar com o saldo disponível correto. Metas e caixinhas guardadas somam ${fmt(b.metas + b.cx)}.</div></div>`;
+}
+
+function saldoModal() {
+  const livre = balances().livre;
+  modal('Saldo já disponível', `
+    <p class="mut" style="margin:0 0 4px">Saldo livre atual: <b>${fmt(livre)}</b></p>
+    <label>Quanto você tem na conta (R$)<input name="v" required inputmode="decimal" placeholder="0,00" autofocus></label>
+    <label class="chk"><input type="checkbox" name="ajustar"> Ajustar o saldo livre para exatamente este valor (em vez de somar)</label>
+    <div class="mut note">Por padrão o valor é somado ao saldo livre. Valores já separados em metas ou caixinhas não entram aqui.</div>`,
+    f => {
+      const v = parseMoney(f.v);
+      const delta = f.ajustar ? v - livre : v;
+      if (!f.ajustar && v <= 0) { toast('Informe um valor maior que zero'); return false; }
+      if (f.ajustar && delta === 0) { toast('O saldo livre já é esse valor'); return false; }
+      S.entries.push({ id: uid(), type: 'saldo', date: today(), desc: f.ajustar ? `Saldo livre ajustado para ${fmt(v)} (${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))})` : `Saldo disponível registrado: ${fmt(v)}`, aloc: { m: {}, c: {}, l: delta } });
+      save(); render(); toast('Saldo registrado ✓');
+    });
+}
+
 function vMensal() {
   const es = monthEntries(), dias = es.filter(e => e.type === 'dia');
   const sum = f => dias.reduce((a, e) => a + f(e), 0);
@@ -555,6 +579,7 @@ function vMensal() {
   const toEmp = sum(e => (e.aloc.c || {})[EMPRESA] || 0);
   const nd = new Set(dias.map(e => e.date)).size;
   return `${monthNav('Mensal')}
+  ${vSaldo()}
   ${vProj()}
   <section><h3>Realizado no mês</h3><div class="grid" style="margin-top:8px">
     <div class="k"><span>Faturamento</span><b>${fmt(rec)}</b></div>
@@ -689,6 +714,8 @@ function metaModal(id) {
   const mo = modal(id ? 'Editar meta' : 'Nova meta', `
     <label>Nome<input name="nome" required value="${esc(m ? m.nome : '')}" placeholder="Ex.: Aluguel"></label>
     <label>Valor total (R$)<input name="valor" required inputmode="decimal" value="${m ? inp(m.valor) : ''}" placeholder="0,00"></label>
+    ${m ? '' : `<label>Quanto já tem guardado (R$)<input name="guardado" inputmode="decimal" placeholder="0,00"></label>
+    <div class="mut note">O que você já separou entra como saldo desta meta e reduz a cota diária. Em metas recorrentes, vale só para o primeiro mês.</div>`}
     <div class="two-in"><div><label>Início<input type="date" name="inicio" required value="${m ? m.inicio : today()}"></label></div>
     <div><label>Prazo (guardar até)<input type="date" name="prazo" required value="${m ? m.prazo : ''}"></label></div></div>
     <label class="chk"><input type="checkbox" name="rec" ${t ? 'checked' : ''}> ↻ Repetir todo mês (mesmo valor e mesmas datas)</label>
@@ -696,6 +723,8 @@ function metaModal(id) {
     f => {
       const valor = parseMoney(f.valor), nome = f.nome.trim();
       if (valor <= 0) { toast('Informe um valor maior que zero'); return false; }
+      const novo = !m, guardado = novo ? parseMoney(f.guardado) : 0;
+      if (guardado > valor) { toast('O valor já guardado não pode passar do valor da meta'); return false; }
       if (f.inicio > f.prazo) { toast('O início não pode ser depois do prazo'); return false; }
       const rec = !!f.rec;
       let dados = null;
@@ -705,7 +734,13 @@ function metaModal(id) {
         dados = { nome, valor, diaInicio: Number(f.inicio.slice(8)), diaPrazo: Number(f.prazo.slice(8)), antes: ant };
       }
       if (m) { m.nome = nome; m.valor = valor; m.inicio = f.inicio; m.prazo = f.prazo; }
-      else { m = { id: uid(), nome, valor, prazo: f.prazo, inicio: f.inicio }; S.metas.push(m); }
+      else {
+        m = { id: uid(), nome, valor, prazo: f.prazo, inicio: f.inicio }; S.metas.push(m);
+        if (guardado > 0) {                         // saldo inicial da meta: datado antes do início para não contar como cota do dia
+          const d0 = [today(), addDays(f.inicio, -1)].sort()[0];
+          S.entries.push({ id: uid(), type: 'inicial', date: d0, desc: `Já guardado na meta "${nome}": ${fmt(guardado)}`, aloc: { m: { [m.id]: guardado }, c: {}, l: 0 } });
+        }
+      }
       if (rec) {
         let tp = t;
         if (tp) Object.assign(tp, dados);
@@ -893,6 +928,7 @@ const actions = {
   dprev: () => { draft.date = addDays(draft.date, -1); render(); },
   dnext: () => { draft.date = addDays(draft.date, 1); render(); },
   novaMeta: () => metaModal(),
+  saldo: () => saldoModal(),
   editTmpl: id => tmplModal(id),
   endTmpl: id => { const t = S.recorrentes.find(x => x.id === id); if (t && confirm(`Encerrar a recorrência de "${t.nome}"? As metas já criadas continuam, mas não serão criadas novas.`)) { endSeries(id); save(); render(); toast('Recorrência encerrada'); } },
   editMeta: id => metaModal(id),
