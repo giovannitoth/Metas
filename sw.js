@@ -1,4 +1,4 @@
-const V = 'mf-v1';
+const V = 'mf-v2';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

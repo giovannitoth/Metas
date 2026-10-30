@@ -43,7 +43,13 @@ function load() {
     cfg: { custo: 0, usar: false }
   };
 }
-let S = load();
+function migrate(s) {
+  s.cfg = s.cfg || { custo: 0, usar: false };
+  if (!Array.isArray(s.cfg.semana)) s.cfg.semana = [1, 2, 3, 4, 5, 6]; // padrão: seg a sáb
+  s.work = s.work || {};                                               // exceções: { 'AAAA-MM-DD': true|false }
+  return s;
+}
+let S = migrate(load());
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Não foi possível salvar os dados'); } };
 
 let tab = 'inicio';
@@ -69,29 +75,45 @@ function balances() {
   return { metas, cx, livre };
 }
 
+/* ---------- dias de trabalho ----------
+   Um dia é de trabalho se: (1) há exceção marcada pelo usuário (extra/folga), ou
+   (2) já existe entrada registrada nele, ou (3) o dia da semana está no padrão. */
+const addDays = (s, n) => { const d = toD(s); d.setDate(d.getDate() + n); return ds(d); };
+const diaDates = () => new Set(S.entries.filter(e => e.type === 'dia').map(e => e.date));
+const baseWork = (date, dd) => (dd || diaDates()).has(date) || S.cfg.semana.includes(toD(date).getDay());
+const isWork = (date, dd) => { const o = S.work[date]; return o !== undefined ? o : baseWork(date, dd); };
+function workDays(a, b) {
+  if (a > b) return 0;
+  const dd = diaDates(); let n = 0;
+  for (let d = a, k = 0; d <= b && k < 3660; d = addDays(d, 1), k++) if (isWork(d, dd)) n++;
+  return n;
+}
+
 /* Quanto precisa guardar na data D para a meta.
-   - "antes"  = guardado em dias anteriores a D
-   - o valor por dia = (total - antes) / dias restantes (D até o prazo, inclusive)
-   Antecipar (guardar mais) reduz o valor dos dias seguintes; atrasar aumenta. */
+   valor por dia = (total - guardado antes de D) / dias de TRABALHO restantes (D até o prazo).
+   Antecipar, atrasar, marcar folga ou dia extra mudam essa conta e tudo é recalculado. */
 function metaInfo(m, D) {
   const saved = sumM(m.id);
   const before = sumM(m.id, e => e.date < D);
   const given = sumM(m.id, e => e.date === D);
   const rem = Math.max(0, m.valor - saved);
-  const dl = Math.max(1, diff(D, m.prazo) + 1);
-  const overdue = m.prazo < D && rem > 0;
-  const need = Math.max(0, Math.ceil((m.valor - before) / dl));
+  const dwork = isWork(D);
+  const wd = workDays(D, m.prazo);
+  const overdue = rem > 0 && (m.prazo < D || wd === 0);
+  const need = overdue ? Math.max(0, m.valor - before)
+    : (dwork ? Math.max(0, Math.ceil((m.valor - before) / wd)) : 0);
   const hoje = Math.min(rem, Math.max(0, need - given));
-  const perDay = hoje > 0 ? need : (rem > 0 && dl > 1 ? Math.ceil(rem / (dl - 1)) : 0);
-  const total = Math.max(1, diff(m.inicio, m.prazo) + 1);
-  const elapsed = Math.min(total, Math.max(0, diff(m.inicio, D)));
-  const expected = Math.round(m.valor * elapsed / total);
+  const wdNext = wd - (dwork ? 1 : 0);
+  const perDay = rem === 0 ? 0 : overdue ? rem : (hoje > 0 ? need : (wdNext > 0 ? Math.ceil(rem / wdNext) : rem));
+  const totalW = Math.max(1, workDays(m.inicio, m.prazo));
+  const elapsedW = D > m.inicio ? workDays(m.inicio, addDays(D, -1)) : 0;
+  const expected = Math.round(m.valor * Math.min(totalW, elapsedW) / totalW);
   let status = 'ok';
   if (rem === 0) status = 'done';
   else if (overdue) status = 'late';
   else if (before < expected - 1) status = 'behind';
-  else if (saved > expected + Math.ceil(m.valor / total)) status = 'ahead';
-  return { saved, rem, dl, overdue, need, hoje, perDay, status, pct: Math.min(100, Math.round(saved / m.valor * 100)) };
+  else if (saved > expected + Math.ceil(m.valor / totalW)) status = 'ahead';
+  return { saved, rem, dl: wd, overdue, need, hoje, perDay, status, dwork, pct: Math.min(100, Math.round(saved / m.valor * 100)) };
 }
 
 /* Distribuição de uma entrada: metas por prioridade, depois caixinhas (%), resto = saldo livre */
@@ -205,7 +227,7 @@ function vEntrada() {
 function vMetasHoje() {
   if (!S.metas.length) return '';
   const D = today();
-  return `<section><div class="row"><h3 style="margin:0">Metas de hoje</h3><button class="ghost sm" data-a="tab" data-id="metas">Ver metas</button></div>
+  return `<section><div class="row"><h3 style="margin:0">Metas de hoje</h3><button class="ghost sm" data-a="tab" data-id="metas">Ver metas</button></div>${isWork(D) ? '' : '<div class="mut" style="margin:6px 0">Hoje é folga — as metas não recebem cota hoje.</div>'}
   ${S.metas.map(m => {
     const i = metaInfo(m, D);
     return `<div class="mini"><div>${esc(m.nome)}<small>${i.status === 'done' ? 'Concluída' : 'até ' + fmtDate(m.prazo)}</small></div>
@@ -248,7 +270,7 @@ function vMetas() {
       <div class="bar"><i style="width:${i.pct}%"></i></div>
       <div class="row mut"><span>${fmt(i.saved)} de ${fmt(m.valor)}</span><span>${i.pct}%</span></div>
       ${i.status === 'done' ? '' : `<div class="row" style="margin-top:10px"><span>Guardar hoje</span><b>${fmt(i.hoje)}</b></div>
-      <div class="row mut"><span>Por dia (${i.overdue ? 'vencida' : i.dl + ' dia' + (i.dl > 1 ? 's' : '') + ' restante' + (i.dl > 1 ? 's' : '')})</span><span>${fmt(i.perDay)}</span></div>
+      <div class="row mut"><span>Por dia de trabalho (${m.prazo < today() ? 'vencida' : i.dl === 0 ? 'sem dias de trabalho até o prazo' : i.dl + ' dia' + (i.dl > 1 ? 's' : '') + ' restante' + (i.dl > 1 ? 's' : '')})</span><span>${fmt(i.perDay)}</span></div>
       <div class="row mut"><span>Falta</span><span>${fmt(i.rem)}</span></div>`}
       <div class="actions">
         <button class="ghost sm" data-a="up" data-id="${m.id}" ${k === 0 ? 'disabled' : ''}>↑</button>
@@ -293,21 +315,35 @@ function vMensal() {
   <input type="file" id="file" accept="application/json" hidden></section>`;
 }
 
+let calEdit = false;
+const NOMES_DIA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const quotaTotal = () => { const T = today(); return S.metas.reduce((a, m) => a + metaInfo(m, T).perDay, 0); };
+
 function vCal() {
   const [y, m] = mes.split('-').map(Number);
   const first = new Date(y, m - 1, 1), n = new Date(y, m, 0).getDate();
-  const T = today();
+  const T = today(), dd = diaDates();
   let h = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(x => `<div class="h">${x}</div>`).join('');
   for (let i = 0; i < first.getDay(); i++) h += '<button class="void"></button>';
+  let nw = 0;
   for (let d = 1; d <= n; d++) {
     const date = `${mes}-${pad(d)}`;
+    const w = isWork(date, dd); if (w) nw++;
+    const ov = S.work[date], pat = S.cfg.semana.includes(toD(date).getDay());
+    const tag = w ? (ov === true && !pat ? 'extra' : '') : (ov === false && pat ? 'folga' : '');
     const dias = S.entries.filter(e => e.date === date && e.type === 'dia');
     const luc = dias.reduce((a, e) => a + e.lucro - e.despesas, 0);
     const due = S.metas.some(mt => mt.prazo === date);
-    h += `<button class="${date === T ? 'today' : ''} ${dias.length ? 'has' : ''}" data-a="day" data-id="${date}">${d}${dias.length ? `<small class="${luc < 0 ? 'neg' : ''}">${short(luc)}</small>` : ''}${due ? '<i></i>' : ''}</button>`;
+    h += `<button class="${date === T ? 'today' : ''} ${dias.length ? 'has' : ''} ${w ? '' : 'off'} ${tag === 'extra' ? 'extra' : ''}" data-a="day" data-id="${date}">${d}${tag ? `<em>${tag}</em>` : ''}${dias.length ? `<small class="${luc < 0 ? 'neg' : ''}">${short(luc)}</small>` : ''}${due ? '<i></i>' : ''}</button>`;
   }
-  return `${monthNav('Calendário')}<div class="cal">${h}</div>
-  <p class="mut" style="margin-top:14px;font-size:13px">Números = lucro líquido do dia · ● = prazo de uma meta. Toque num dia para ver ou lançar.</p>`;
+  return `${monthNav('Calendário')}
+  <div class="grid" style="margin-bottom:14px"><div class="k"><span>Dias de trabalho no mês</span><b>${nw}</b></div><div class="k"><span>Cota diária das metas</span><b>${fmt(quotaTotal())}</b></div></div>
+  <div class="mut" style="font-size:14px">Dias de trabalho padrão</div>
+  <div class="chips" style="margin:8px 0 14px">${NOMES_DIA.map((nm, k) => `<button class="chip wd ${S.cfg.semana.includes(k) ? 'on' : ''}" data-a="semana" data-id="${k}">${nm}</button>`).join('')}</div>
+  <div class="actions" style="margin:0 0 12px"><button class="${calEdit ? 'pri sm' : 'ghost'}" data-a="calEdit">${calEdit ? '✓ Editando dias' : 'Escolher dias'}</button><button class="ghost" data-a="resetMes">Restaurar padrão do mês</button></div>
+  ${calEdit ? '<div class="gold" style="margin-bottom:10px;font-size:14px">Toque nos dias para alternar entre trabalho e folga. As metas são recalculadas a cada toque.</div>' : ''}
+  <div class="cal">${h}</div>
+  <p class="mut" style="margin-top:14px;font-size:13px">Listrado = folga · “extra” = dia de trabalho fora do padrão · número = lucro líquido · ● = prazo de meta. ${calEdit ? '' : 'Toque num dia para ver detalhes, marcar folga/extra ou lançar.'}</p>`;
 }
 
 function render() {
@@ -323,7 +359,7 @@ function renderPreview() {
   c1.innerHTML = `<div class="two"><div><span>Custo Total</span><b>${fmt(r.custoTotal)}</b></div><div><span>Receita</span><b>${fmt(d.receita)}</b></div></div>
   <div class="profit"><span>↗ Lucro do Dia</span><b class="${r.lucro < 0 ? 'neg' : ''}">${fmt(r.lucro)}</b></div>`;
   $('#det').innerHTML = `<div class="r"><span>Receita</span><span>${fmt(d.receita)}</span></div><div class="r"><span>− Custo (${fmt(d.custo)} × ${d.qtd || 0})</span><span>${fmt(r.custoTotal)}</span></div><div class="r b"><span>Lucro</span><span>${fmt(r.lucro)}</span></div>`;
-  $('#calc2').innerHTML = `
+  $('#calc2').innerHTML = `${isWork(d.date) ? '' : '<div class="mut" style="padding:6px 0">Dia de folga: as metas não recebem cota. Marque “Adiantar metas” para guardar mesmo assim.</div>'}
     <div class="r"><span>Recebido (lucro)</span><span>${fmt(r.lucro)}</span></div>
     <div class="r"><span>Despesas</span><span>${fmt(d.despesas)}</span></div>
     <div class="r b"><span>Disponível para metas</span><span>${fmt(r.disp)}</span></div>
@@ -458,9 +494,17 @@ function dist100() {
 function dayModal(date) {
   const es = S.entries.filter(e => e.date === date);
   const dueMetas = S.metas.filter(m => m.prazo === date);
+  const w = isWork(date), ov = S.work[date], pat = S.cfg.semana.includes(toD(date).getDay());
+  const T = today();
+  let quota = 0;
+  if (w && date >= T) quota = S.metas.filter(m => m.prazo >= date).reduce((a, m) => a + metaInfo(m, T).perDay, 0);
+  const label = w ? (ov === true && !pat ? 'Dia de trabalho extra' : 'Dia de trabalho') : (ov === false ? 'Folga extra' : 'Folga');
   const mo = modal(fmtLong(date), `
+    <div class="mini"><div>${w ? '🟢' : '⚪'} ${label}<small>${w && date >= T && S.metas.length ? 'Cota prevista das metas: ' + fmt(quota) : ''}</small></div>
+      <button type="button" class="ghost sm" data-a="toggleDay" data-id="${date}">${w ? 'Marcar folga' : 'Trabalhar neste dia'}</button></div>
+    ${ov !== undefined ? `<div class="mini"><div class="mut">Este dia foi alterado manualmente</div><button type="button" class="ghost sm" data-a="resetDay" data-id="${date}">Voltar ao padrão</button></div>` : ''}
     ${dueMetas.map(m => `<div class="mini"><div>🎯 Prazo da meta: ${esc(m.nome)}<small>${fmt(m.valor)}</small></div></div>`).join('')}
-    ${es.map(e => { const d = entDesc(e); return `<div class="mini"><div>${d.t}<small>${d.s}</small></div><button type="button" class="ghost sm danger" data-del="${e.id}">Excluir</button></div>`; }).join('') || '<div class="empty">Sem lançamentos.</div>'}
+    ${es.map(e => { const d = entDesc(e); return `<div class="mini"><div>${d.t}<small>${d.s}</small></div><button type="button" class="ghost sm danger" data-del="${e.id}">Excluir</button></div>`; }).join('') || '<div class="empty" style="margin-top:8px">Sem lançamentos.</div>'}
     <div class="btns"><button type="button" class="pri" data-a="lancar" data-id="${date}">Lançar neste dia</button></div>`, null, { nosave: true });
   mo.o.addEventListener('click', e => {
     const id = e.target.dataset.del; if (!id) return;
@@ -468,6 +512,31 @@ function dayModal(date) {
     S.entries = S.entries.filter(x => x.id !== id);
     save(); mo.close(); render();
   });
+}
+
+/* alterações de calendário: salvam, redesenham e mostram o efeito nas metas */
+function calChanged(antes, date, msg) {
+  save();
+  const had = !!$('.ov'); closeModals(); render();
+  if (had && date) dayModal(date);
+  const depois = quotaTotal();
+  toast(S.metas.length && antes !== depois ? `${msg} · cota diária: ${fmt(antes)} → ${fmt(depois)}` : msg);
+}
+function toggleDay(date) {
+  const antes = quotaTotal(), w = !isWork(date);
+  if (w === baseWork(date)) delete S.work[date]; else S.work[date] = w;
+  calChanged(antes, date, w ? 'Dia de trabalho' : 'Folga');
+}
+function resetDay(date) { const a = quotaTotal(); delete S.work[date]; calChanged(a, date, 'Dia voltou ao padrão'); }
+function toggleSemana(k) {
+  const a = quotaTotal(), sm = S.cfg.semana;
+  S.cfg.semana = sm.includes(k) ? sm.filter(x => x !== k) : [...sm, k].sort();
+  calChanged(a, null, 'Dias padrão atualizados');
+}
+function resetMes() {
+  const a = quotaTotal();
+  Object.keys(S.work).forEach(d => { if (d.startsWith(mes)) delete S.work[d]; });
+  calChanged(a, null, 'Mês restaurado ao padrão');
 }
 
 function shiftMes(n) {
@@ -499,7 +568,11 @@ const actions = {
   sugestao: nome => cxModal(null, nome),
   dist100,
   delEntry: id => { if (confirm('Excluir este lançamento?')) { S.entries = S.entries.filter(e => e.id !== id); save(); render(); } },
-  day: dayModal,
+  day: id => calEdit ? toggleDay(id) : dayModal(id),
+  toggleDay, resetDay,
+  semana: id => toggleSemana(Number(id)),
+  calEdit: () => { calEdit = !calEdit; render(); },
+  resetMes,
   lancar: date => { closeModals(); draft.date = date; tab = 'inicio'; render(); window.scrollTo(0, 0); },
   mesPrev: () => shiftMes(-1),
   mesNext: () => shiftMes(1),
@@ -531,7 +604,7 @@ document.addEventListener('change', e => {
         const s = JSON.parse(rd.result);
         if (!s || !Array.isArray(s.entries) || !Array.isArray(s.metas) || !Array.isArray(s.caixinhas)) throw 0;
         if (!confirm('Importar vai substituir os dados atuais. Continuar?')) return;
-        S = s; S.cfg = S.cfg || { custo: 0, usar: false };
+        S = migrate(s);
         save(); draft = newDraft(); render(); toast('Dados importados ✓');
       } catch (err) { toast('Arquivo inválido'); }
     };

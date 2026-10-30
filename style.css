@@ -105,3 +105,8 @@ button{font:inherit;cursor:pointer;border:0;color:var(--tx)}
 #toast{position:fixed;left:50%;bottom:110px;transform:translateX(-50%) translateY(20px);background:var(--br);color:#fff;
   padding:12px 20px;border-radius:99px;opacity:0;transition:.25s;pointer-events:none;z-index:99;max-width:90%;text-align:center}
 #toast.show{opacity:1;transform:translateX(-50%)}
+.chip.wd{padding:8px 13px;font-size:15px;box-shadow:none}
+.chip.on{background:var(--or);color:#fff;border-color:var(--or)}
+.cal button.off{opacity:.55;background:repeating-linear-gradient(45deg,transparent 0 6px,var(--soft) 6px 12px)}
+.cal button.extra{border-color:var(--gold);border-width:2px}
+.cal button em{font-style:normal;font-size:9px;color:var(--gold);line-height:1}
