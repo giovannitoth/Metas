@@ -3,7 +3,7 @@
    Valores sempre em centavos (inteiros). Dados salvos no localStorage. */
 
 const KEY = 'metas-financeiras-v1';
-const COLORS = ['#F04A00', '#C98A12', '#2E8B57', '#2A62B0', '#8E44AD', '#C0392B', '#16A0A0', '#7F6A5B'];
+const COLORS = ['#E0246F', '#C98A12', '#2E8B57', '#2A62B0', '#8E44AD', '#C0392B', '#16A0A0', '#7F6A5B'];
 /* Cores por prioridade (P1 = mais urgente). Cada meta usa o tom da sua posição na lista. */
 const PRIO = [
   { c: '#D93636', bg: '#FCE7E4', bd: '#F2BDB6' },
@@ -22,7 +22,7 @@ function setTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
   const m = document.querySelector('meta[name=theme-color]');
-  if (m) m.setAttribute('content', t === 'dark' ? '#000000' : '#F04A00');
+  if (m) m.setAttribute('content', t === 'dark' ? '#000000' : '#E0246F');
 }
 const EMPRESA = 'caixa-empresa'; // caixinha automática: recebe o custo da mercadoria
 const SUGESTOES = ['Lazer', 'Investimentos', 'Transporte', 'Saúde', 'Reserva de Emergência'];
@@ -69,6 +69,7 @@ function migrate(s) {
   s.cfg = s.cfg || { custo: 0, usar: false };
   if (!Array.isArray(s.cfg.semana)) s.cfg.semana = [1, 2, 3, 4, 5, 6]; // padrão: seg a sáb
   s.work = s.work || {};
+  s.recorrentes = s.recorrentes || [];
   s.caixinhas = s.caixinhas || [];
   if (!s.caixinhas.some(c => c.fixa === 'empresa'))
     s.caixinhas.unshift({ id: 'caixa-empresa', nome: 'Caixa da Empresa', pct: 0, cor: '#4E2E20', fixa: 'empresa' });                                               // exceções: { 'AAAA-MM-DD': true|false }
@@ -122,23 +123,88 @@ function metaInfo(m, D) {
   const before = sumM(m.id, e => e.date < D);
   const given = sumM(m.id, e => e.date === D);
   const rem = Math.max(0, m.valor - saved);
+  const futuro = D < m.inicio;                       // meta ainda não começou
   const dwork = isWork(D);
-  const wd = workDays(D, m.prazo);
-  const overdue = rem > 0 && (m.prazo < D || wd === 0);
-  const need = overdue ? Math.max(0, m.valor - before)
+  const wd = workDays(futuro ? m.inicio : D, m.prazo);
+  const overdue = !futuro && rem > 0 && (m.prazo < D || wd === 0);
+  const need = futuro ? 0 : overdue ? Math.max(0, m.valor - before)
     : (dwork ? Math.max(0, Math.ceil((m.valor - before) / wd)) : 0);
   const hoje = Math.min(rem, Math.max(0, need - given));
-  const wdNext = wd - (dwork ? 1 : 0);
-  const perDay = rem === 0 ? 0 : overdue ? rem : (hoje > 0 ? need : (wdNext > 0 ? Math.ceil(rem / wdNext) : rem));
+  const wdNext = wd - (dwork && !futuro ? 1 : 0);
+  const perDay = rem === 0 ? 0 : futuro ? Math.ceil(rem / Math.max(1, wd))
+    : overdue ? rem : (hoje > 0 ? need : (wdNext > 0 ? Math.ceil(rem / wdNext) : rem));
   const totalW = Math.max(1, workDays(m.inicio, m.prazo));
   const elapsedW = D > m.inicio ? workDays(m.inicio, addDays(D, -1)) : 0;
   const expected = Math.round(m.valor * Math.min(totalW, elapsedW) / totalW);
   let status = 'ok';
   if (rem === 0) status = 'done';
+  else if (futuro) status = 'future';
   else if (overdue) status = 'late';
   else if (before < expected - 1) status = 'behind';
   else if (saved > expected + Math.ceil(m.valor / totalW)) status = 'ahead';
-  return { saved, rem, dl: wd, overdue, need, hoje, perDay, status, dwork, pct: Math.min(100, Math.round(saved / m.valor * 100)) };
+  return { saved, rem, dl: wd, overdue, futuro, need, hoje, perDay, status, dwork, pct: Math.min(100, Math.round(saved / m.valor * 100)) };
+}
+
+/* ---------- metas recorrentes ----------
+   Modelo (S.recorrentes): { id, nome, valor, diaInicio, diaPrazo, antes, desde, skip[], rank }
+   - antes = true quando o início cai no mês anterior ao do prazo (ex.: guardar do dia 20 até o dia 5).
+   - Cada mês vira uma meta normal (instância) com serie = id do modelo e mref = 'AAAA-MM' do prazo.
+   - A instância do mês é criada automaticamente quando chega a data de início. */
+function clampDia(y, m, d) { const last = new Date(y, m, 0).getDate(); return `${y}-${pad(m)}-${pad(Math.min(d, last))}`; }
+function datesFor(t, mref) {
+  const [y, m] = mref.split('-').map(Number);
+  const prazo = clampDia(y, m, t.diaPrazo);
+  const pm = new Date(y, m - 2, 1);
+  const inicio = t.antes ? clampDia(pm.getFullYear(), pm.getMonth() + 1, t.diaInicio) : clampDia(y, m, t.diaInicio);
+  return { inicio, prazo };
+}
+const mesDe = d => d.slice(0, 7);
+const mesSeg = mref => { const [y, m] = mref.split('-').map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+const isDone = x => sumM(x.id) >= x.valor;
+
+function ensureRecorrentes() {
+  const T = today(), cur = mesDe(T);
+  let changed = false;
+  S.recorrentes.forEach(t => {
+    [cur, mesSeg(cur)].forEach(mref => {
+      if (mref < t.desde || (t.skip || []).includes(mref)) return;
+      if (S.metas.some(x => x.serie === t.id && x.mref === mref)) return;
+      const dt = datesFor(t, mref);
+      if (dt.inicio > T) return;                                  // ainda não chegou o início
+      const nova = { id: uid(), nome: t.nome, valor: t.valor, inicio: dt.inicio, prazo: dt.prazo, serie: t.id, mref };
+      const nAtivas = S.metas.filter(x => !isDone(x)).length;
+      const pos = t.rank != null ? Math.min(t.rank, nAtivas) : nAtivas;   // mantém a prioridade do mês anterior
+      S.metas.splice(pos, 0, nova);
+      changed = true;
+    });
+  });
+  return changed;
+}
+/* concluídas vão para o fim da lista; guarda a posição (prioridade) de cada série */
+function normalizeMetas() {
+  const a = S.metas.filter(x => !isDone(x)), b = S.metas.filter(isDone);
+  const novo = a.concat(b);
+  let changed = novo.some((x, i) => x !== S.metas[i]);
+  if (changed) S.metas = novo;
+  const vistas = new Set();
+  a.forEach((x, i) => {                       // vale a posição da parcela aberta mais antiga da série
+    const t = x.serie && !vistas.has(x.serie) && S.recorrentes.find(r => r.id === x.serie);
+    if (!t) return;
+    vistas.add(x.serie);
+    if (t.rank !== i) { t.rank = i; changed = true; }
+  });
+  return changed;
+}
+function applyTemplateToOpen(t, exceptId) {
+  S.metas.forEach(x => {
+    if (x.serie !== t.id || x.id === exceptId || isDone(x) || x.mref < mesDe(today())) return;
+    const dt = datesFor(t, x.mref);
+    x.nome = t.nome; x.valor = t.valor; x.inicio = dt.inicio; x.prazo = dt.prazo;
+  });
+}
+function endSeries(tid) {
+  S.recorrentes = S.recorrentes.filter(r => r.id !== tid);
+  S.metas.forEach(x => { if (x.serie === tid) { delete x.serie; delete x.mref; } });
 }
 
 /* Distribuição de uma entrada: metas por prioridade, depois caixinhas (%), resto = saldo livre */
@@ -156,7 +222,7 @@ function compute(d) {
   });
   if (d.adiantar) {
     S.metas.forEach((mt, k) => {
-      const room = infos[k].rem - m[mt.id];
+      const room = infos[k].futuro ? 0 : infos[k].rem - m[mt.id];
       const g = Math.min(room, left);
       if (g > 0) { m[mt.id] += g; left -= g; }
     });
@@ -272,14 +338,12 @@ function vEntrada() {
 }
 
 function vMetasHoje() {
-  if (!S.metas.length) return '';
   const D = today();
+  const lista = S.metas.map((m, k) => ({ m, k, i: metaInfo(m, D) })).filter(x => x.i.status !== 'done');
+  if (!lista.length) return '';
   return `<details class="acc" open><summary>Metas de hoje</summary>
   ${isWork(D) ? '' : '<div class="mut note">Hoje é folga — as metas não recebem cota.</div>'}
-  <div class="plist">${S.metas.map((m, k) => {
-    const i = metaInfo(m, D);
-    return `<div class="prow" style="${pstyle(k)}"><i class="pd">P${k + 1}</i><span class="pn">${esc(m.nome)}<small>${i.status === 'done' ? 'Concluída' : 'até ' + fmtDate(m.prazo).slice(0, 5)}</small></span><b>${i.status === 'done' ? '✓' : fmt(i.hoje)}</b></div>`;
-  }).join('')}</div>
+  <div class="plist">${lista.map(({ m, k, i }) => `<div class="prow" style="${pstyle(k)}"><i class="pd">P${k + 1}</i><span class="pn">${m.serie ? '↻ ' : ''}${esc(m.nome)}<small>${i.futuro ? 'inicia em ' + fmtDate(m.inicio).slice(0, 5) + ' · até ' + fmtDate(m.prazo).slice(0, 5) : 'até ' + fmtDate(m.prazo).slice(0, 5)}</small></span><b>${i.futuro ? '—' : fmt(i.hoje)}</b></div>`).join('')}</div>
   <button class="link" data-a="tab" data-id="metas">Ver todas as metas ›</button></details>`;
 }
 
@@ -307,28 +371,41 @@ function vCaixinhas() {
   </section>`;
 }
 
-function vMetas() {
+function metaCard({ m, i, k }) {
   const D = today();
-  const infos = S.metas.map(m => ({ m, i: metaInfo(m, D) }));
-  const totHoje = infos.reduce((a, x) => a + x.i.hoje, 0);
-  return `<header class="top row"><div><h1>Metas</h1><div class="sub">Por ordem de prioridade</div></div><button class="pri sm" data-a="novaMeta">+ Nova meta</button></header>
-  <div class="stats two"><div class="t2"><span>Guardar hoje</span><b>${fmt(totHoje)}</b></div><div class="t1"><span>Saldo livre</span><b>${fmt(balances().livre)}</b></div></div>
-  ${infos.map(({ m, i }, k) => {
-    const badge = { done: '<span class="badge ok">Concluída</span>', late: '<span class="badge late">Vencida</span>', behind: '<span class="badge late">Atrasada</span>', ahead: '<span class="badge ahead">Adiantada</span>', ok: '' }[i.status];
-    const dias = m.prazo < D ? 'vencida' : i.dl === 0 ? 'sem dias de trabalho' : i.dl + (i.dl > 1 ? ' dias' : ' dia');
-    return `<div class="mcard" style="${pstyle(k)}">
-      <div class="mh"><span class="pb">P${k + 1}</span><b class="mn">${esc(m.nome)}</b>${badge}<span class="mdate">${fmtDate(m.prazo).slice(0, 5)} · ${dias}</span></div>
+  const badge = {
+    done: '<span class="badge ok">Concluída</span>', late: '<span class="badge late">Vencida</span>', behind: '<span class="badge late">Atrasada</span>',
+    ahead: '<span class="badge ahead">Adiantada</span>', future: `<span class="badge fut">Inicia ${fmtDate(m.inicio).slice(0, 5)}</span>`, ok: ''
+  }[i.status];
+  const dias = i.futuro ? 'ainda não começou' : m.prazo < D ? 'vencida' : i.dl === 0 ? 'sem dias de trabalho' : i.dl + (i.dl > 1 ? ' dias' : ' dia');
+  const done = i.status === 'done';
+  return `<div class="mcard" style="${pstyle(k)}">
+      <div class="mh"><span class="pb">${done ? '✓' : 'P' + (k + 1)}</span><b class="mn">${esc(m.nome)}</b>${m.serie ? '<span class="badge rec">↻ Mensal</span>' : ''}${badge}<span class="mdate">${fmtDate(m.inicio).slice(0, 5)} → ${fmtDate(m.prazo).slice(0, 5)} · ${dias}</span></div>
       <div class="bar"><i style="width:${i.pct}%"></i></div>
       <div class="mrow"><span>${fmt(i.saved)} de ${fmt(m.valor)}</span><b>${i.pct}%</b></div>
-      ${i.status === 'done' ? '' : `<div class="mgrid"><div><small>Hoje</small><b>${fmt(i.hoje)}</b></div><div><small>Por dia</small><b>${fmt(i.perDay)}</b></div><div><small>Falta</small><b>${fmt(i.rem)}</b></div></div>`}
+      ${done ? '' : `<div class="mgrid"><div><small>Hoje</small><b>${fmt(i.hoje)}</b></div><div><small>Por dia</small><b>${fmt(i.perDay)}</b></div><div><small>Falta</small><b>${fmt(i.rem)}</b></div></div>`}
       <div class="macts">
-        <button class="ib" data-a="up" data-id="${m.id}" ${k === 0 ? 'disabled' : ''} aria-label="Subir prioridade">↑</button>
-        <button class="ib" data-a="down" data-id="${m.id}" ${k === S.metas.length - 1 ? 'disabled' : ''} aria-label="Descer prioridade">↓</button>
+        ${done ? '' : `<button class="ib" data-a="up" data-id="${m.id}" ${k === 0 ? 'disabled' : ''} aria-label="Subir prioridade">↑</button>
+        <button class="ib" data-a="down" data-id="${m.id}" ${S.metas[k + 1] && !isDone(S.metas[k + 1]) ? '' : 'disabled'} aria-label="Descer prioridade">↓</button>`}
         <span class="sp"></span>
         <button class="ghost sm" data-a="editMeta" data-id="${m.id}">Editar</button>
-        ${i.status === 'done' ? '' : `<button class="ghost sm" data-a="depMeta" data-id="${m.id}">Adiantar</button>`}
+        ${done ? '' : `<button class="ghost sm" data-a="depMeta" data-id="${m.id}">Adiantar</button>`}
       </div></div>`;
-  }).join('') || '<div class="empty" style="margin-top:12px">Crie sua primeira meta: informe o valor total e até quando precisa guardar. O app calcula quanto guardar por dia.<br><button class="pri sm" style="margin-top:10px" data-a="novaMeta">+ Criar meta</button></div>'}`;
+}
+
+function vMetas() {
+  const D = today();
+  const infos = S.metas.map((m, k) => ({ m, k, i: metaInfo(m, D) }));
+  const ativas = infos.filter(x => x.i.status !== 'done'), feitas = infos.filter(x => x.i.status === 'done');
+  const totHoje = ativas.reduce((a, x) => a + x.i.hoje, 0);
+  return `<header class="top row"><div><h1>Metas</h1><div class="sub">Por ordem de prioridade</div></div><button class="pri sm" data-a="novaMeta">+ Nova meta</button></header>
+  <div class="stats two"><div class="t2"><span>Guardar hoje</span><b>${fmt(totHoje)}</b></div><div class="t1"><span>Saldo livre</span><b>${fmt(balances().livre)}</b></div></div>
+  ${ativas.map(metaCard).join('') || '<div class="empty" style="margin-top:12px">' + (feitas.length ? 'Todas as metas estão concluídas 🎉' : 'Crie sua primeira meta: informe o valor total, o início e até quando precisa guardar. O app calcula quanto guardar por dia.') + '<br><button class="pri sm" style="margin-top:10px" data-a="novaMeta">+ Criar meta</button></div>'}
+  ${S.recorrentes.length ? `<details class="acc" open><summary>Metas recorrentes (${S.recorrentes.length})</summary>
+    ${S.recorrentes.map(t => `<div class="mini"><div>↻ ${esc(t.nome)}<small>${fmt(t.valor)} · início dia ${t.diaInicio}${t.antes ? ' (mês anterior)' : ''} → prazo dia ${t.diaPrazo}</small></div>
+      <div class="actions"><button class="ghost sm" data-a="editTmpl" data-id="${t.id}">Editar</button><button class="ghost sm danger" data-a="endTmpl" data-id="${t.id}">Encerrar</button></div></div>`).join('')}
+    <div class="mut note">A cada mês a meta é criada sozinha quando chega a data de início, mantendo a mesma prioridade.</div></details>` : ''}
+  ${feitas.length ? `<details class="acc"><summary>Concluídas (${feitas.length})</summary>${feitas.map(metaCard).join('')}</details>` : ''}`;
 }
 
 function monthEntries() { return S.entries.filter(e => e.date.startsWith(mes)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)); }
@@ -391,7 +468,7 @@ function projecao(mesStr) {
       const inMes = dt >= first && dt <= last;
       let av = disp;
       S.metas.forEach(m => {
-        if (rem[m.id] <= 0) return;
+        if (rem[m.id] <= 0 || dt < m.inicio) return;
         const pi = Math.min(dias.length - 1, diff(simStart, m.prazo));
         const wd = pi >= i ? pre[pi + 1] - pre[i] : 0;
         const need = (m.prazo < dt || wd === 0) ? rem[m.id] : Math.ceil(rem[m.id] / wd);
@@ -428,7 +505,7 @@ function vProj() {
   const lucB = [real.r - real.c, tot.r - tot.c], lucL = [lucB[0] - real.d, lucB[1] - tot.d];
   const row = (lbl, a, b, cls = '', st = '') => `<tr class="${cls}" ${st ? `style="${st}"` : ''}><td>${lbl}</td><td>${fmtN(a)}</td>${cols ? `<td>${fmtN(b)}</td>` : ''}</tr>`;
   const T = cols ? 'Projeção do mês' : 'Fechamento do mês';
-  const colorBar = [['#4E2E20', 'Custo da mercadoria', tot.c], ['#C93A2B', 'Despesas', tot.d], ['#F04A00', 'Metas', mProj], ['#C98A12', 'Caixinhas', xProj], ['#2E8B57', 'Saldo livre', P.livreMes]];
+  const colorBar = [['#4E2E20', 'Custo da mercadoria', tot.c], ['#C93A2B', 'Despesas', tot.d], ['#E0246F', 'Metas', mProj], ['#C98A12', 'Caixinhas', xProj], ['#2E8B57', 'Saldo livre', P.livreMes]];
   const fat = tot.r;
   const bar = fat > 0 ? `<div class="distbar tall">${colorBar.map(([c, , v]) => v > 0 ? `<i style="width:${(v / fat * 100).toFixed(2)}%;background:${c}"></i>` : '').join('')}</div>
     <div class="legend">${colorBar.map(([c, n, v]) => `<span><i class="dot" style="background:${c}"></i>${n} <b>${fat > 0 ? Math.round(v / fat * 100) : 0}%</b></span>`).join('')}</div>` : '';
@@ -553,6 +630,7 @@ function vCal() {
 }
 
 function render() {
+  if (ensureRecorrentes() | normalizeMetas()) save();
   $('#app').innerHTML = ({ inicio: vInicio, metas: vMetas, mensal: vMensal, cal: vCal }[tab])();
   $('#nav').innerHTML = [['inicio', 'Início'], ['metas', 'Metas'], ['mensal', 'Mensal'], ['cal', 'Calendário']]
     .map(([k, l]) => `<button data-a="tab" data-id="${k}" class="${tab === k ? 'on' : ''}">${ICON[k === 'cal' ? 'cal' : k]}${l}</button>`).join('');
@@ -571,8 +649,8 @@ function renderPreview() {
     <div class="r"><span>Lucro recebido</span><span>${fmt(r.lucro)}</span></div>
     <div class="r"><span>Despesas</span><span>− ${fmt(d.despesas)}</span></div>
     <div class="r b"><span>Disponível para metas</span><span>${fmt(r.disp)}</span></div>
-    ${S.metas.map((m, k) => { const i = r.infos[k]; const g = r.m[m.id] || 0;
-      return `<div class="r" style="${pstyle(k)}"><span><i class="dot" style="background:var(--pc)"></i>${esc(m.nome)}${g < i.hoje ? `<small>faltou ${fmt(i.hoje - g)} da cota de hoje</small>` : ''}</span><span>${i.status === 'done' ? '✓' : fmt(g)}</span></div>`; }).join('')}
+    ${S.metas.map((m, k) => { const i = r.infos[k]; const g = r.m[m.id] || 0; if (i.status === 'done' && !g) return '';
+      return `<div class="r" style="${pstyle(k)}"><span><i class="dot" style="background:var(--pc)"></i>${esc(m.nome)}${g < i.hoje ? `<small>faltou ${fmt(i.hoje - g)} da cota de hoje</small>` : ''}</span><span>${i.status === 'done' ? '✓' : i.futuro ? 'inicia ' + fmtDate(m.inicio).slice(0, 5) : fmt(g)}</span></div>`; }).join('')}
     <div class="r b"><span>Restante após metas</span><span>${fmt(r.restante)}</span></div>
     ${S.caixinhas.filter(c => !c.fixa).map(c => `<div class="r"><span><i class="dot" style="background:${c.cor}"></i>${esc(c.nome)} · ${c.pct}%</span><span>${fmt(r.c[c.id] || 0)}</span></div>`).join('')}
     <div class="r b"><span>Saldo livre desta entrada</span><span>${fmt(r.livre)}</span></div>`;
@@ -606,26 +684,69 @@ function registrar() {
 }
 
 function metaModal(id) {
-  const m = S.metas.find(x => x.id === id);
+  let m = S.metas.find(x => x.id === id);
+  const t = m && m.serie ? S.recorrentes.find(x => x.id === m.serie) : null;
   const mo = modal(id ? 'Editar meta' : 'Nova meta', `
     <label>Nome<input name="nome" required value="${esc(m ? m.nome : '')}" placeholder="Ex.: Aluguel"></label>
     <label>Valor total (R$)<input name="valor" required inputmode="decimal" value="${m ? inp(m.valor) : ''}" placeholder="0,00"></label>
-    <label>Guardar até<input type="date" name="prazo" required value="${m ? m.prazo : ''}" ${m ? '' : `min="${today()}"`}></label>`,
+    <div class="two-in"><div><label>Início<input type="date" name="inicio" required value="${m ? m.inicio : today()}"></label></div>
+    <div><label>Prazo (guardar até)<input type="date" name="prazo" required value="${m ? m.prazo : ''}"></label></div></div>
+    <label class="chk"><input type="checkbox" name="rec" ${t ? 'checked' : ''}> ↻ Repetir todo mês (mesmo valor e mesmas datas)</label>
+    <div class="mut note">Antes do início a meta não recebe nada. Em metas recorrentes, o início deve estar no mesmo mês do prazo ou no mês anterior.</div>`,
     f => {
-      const valor = parseMoney(f.valor);
+      const valor = parseMoney(f.valor), nome = f.nome.trim();
       if (valor <= 0) { toast('Informe um valor maior que zero'); return false; }
-      if (m) { m.nome = f.nome.trim(); m.valor = valor; m.prazo = f.prazo; }
-      else S.metas.push({ id: uid(), nome: f.nome.trim(), valor, prazo: f.prazo, inicio: today() });
+      if (f.inicio > f.prazo) { toast('O início não pode ser depois do prazo'); return false; }
+      const rec = !!f.rec;
+      let dados = null;
+      if (rec) {
+        const mi = mesDe(f.inicio), mp = mesDe(f.prazo), ant = mesSeg(mi) === mp;
+        if (mi !== mp && !ant) { toast('Metas recorrentes: início no mesmo mês do prazo ou no mês anterior'); return false; }
+        dados = { nome, valor, diaInicio: Number(f.inicio.slice(8)), diaPrazo: Number(f.prazo.slice(8)), antes: ant };
+      }
+      if (m) { m.nome = nome; m.valor = valor; m.inicio = f.inicio; m.prazo = f.prazo; }
+      else { m = { id: uid(), nome, valor, prazo: f.prazo, inicio: f.inicio }; S.metas.push(m); }
+      if (rec) {
+        let tp = t;
+        if (tp) Object.assign(tp, dados);
+        else { tp = { id: uid(), desde: mesDe(f.prazo), skip: [], ...dados }; S.recorrentes.push(tp); m.serie = tp.id; }
+        m.mref = mesDe(f.prazo);
+        applyTemplateToOpen(tp, m.id);
+      } else if (t) endSeries(t.id);
       save(); render();
+      if (rec && !t) toast('Meta recorrente criada ↻');
     }, { extra: m ? '<button type="button" class="ghost danger" data-del>Excluir</button>' : '' });
   const del = mo.o.querySelector('[data-del]');
   if (del) del.onclick = () => {
     if (!confirm('Excluir esta meta? O valor guardado volta para o saldo livre.')) return;
     const saved = sumM(m.id);
     if (saved) S.entries.push({ id: uid(), type: 'ajuste', date: today(), desc: `Meta "${m.nome}" excluída — valor devolvido ao saldo livre`, aloc: { m: { [m.id]: -saved }, c: {}, l: saved } });
+    if (t) {
+      if (confirm('Esta meta é recorrente.\n\nOK = encerrar a recorrência (não criar nos próximos meses)\nCancelar = excluir só este mês e continuar nos próximos')) endSeries(t.id);
+      else { t.skip = t.skip || []; t.skip.push(m.mref); }
+    }
     S.metas = S.metas.filter(x => x.id !== m.id);
     save(); mo.close(); render();
   };
+}
+
+function tmplModal(id) {
+  const t = S.recorrentes.find(x => x.id === id); if (!t) return;
+  modal('Meta recorrente', `
+    <label>Nome<input name="nome" required value="${esc(t.nome)}"></label>
+    <label>Valor mensal (R$)<input name="valor" required inputmode="decimal" value="${inp(t.valor)}"></label>
+    <div class="two-in"><div><label>Dia do início<input name="di" type="number" min="1" max="31" required value="${t.diaInicio}"></label></div>
+    <div><label>Dia do prazo<input name="dp" type="number" min="1" max="31" required value="${t.diaPrazo}"></label></div></div>
+    <label class="chk"><input type="checkbox" name="antes" ${t.antes ? 'checked' : ''}> O início é no mês anterior ao prazo</label>
+    <div class="mut note">As alterações valem para as metas abertas e para os próximos meses. Metas já concluídas não mudam.</div>`,
+    f => {
+      const valor = parseMoney(f.valor), di = Math.round(Number(f.di)), dp = Math.round(Number(f.dp));
+      if (valor <= 0 || !(di >= 1 && di <= 31) || !(dp >= 1 && dp <= 31)) { toast('Confira valor e dias (1 a 31)'); return false; }
+      const antes = !!f.antes;
+      if (!antes && di > dp) { toast('O dia de início não pode ser depois do prazo no mesmo mês'); return false; }
+      Object.assign(t, { nome: f.nome.trim(), valor, diaInicio: di, diaPrazo: dp, antes });
+      applyTemplateToOpen(t); save(); render(); toast('Meta recorrente atualizada');
+    });
 }
 
 function depMeta(id) {
@@ -772,6 +893,8 @@ const actions = {
   dprev: () => { draft.date = addDays(draft.date, -1); render(); },
   dnext: () => { draft.date = addDays(draft.date, 1); render(); },
   novaMeta: () => metaModal(),
+  editTmpl: id => tmplModal(id),
+  endTmpl: id => { const t = S.recorrentes.find(x => x.id === id); if (t && confirm(`Encerrar a recorrência de "${t.nome}"? As metas já criadas continuam, mas não serão criadas novas.`)) { endSeries(id); save(); render(); toast('Recorrência encerrada'); } },
   editMeta: id => metaModal(id),
   depMeta,
   up: id => moveMeta(id, -1),

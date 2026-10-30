@@ -343,3 +343,101 @@ button:active{transform:scale(.97)}
 #toast{width:max-content;white-space:nowrap}
 .chips.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
 .chips.week .chip{padding:7px 0;font-size:13px;text-align:center}
+
+/* metas recorrentes / início */
+.badge.rec{color:var(--pc);font-weight:600}
+.badge.fut{background:rgba(255,255,255,.8);color:var(--mut)}
+.sheet .two-in label{margin-top:12px}
+.sheet .chk{display:flex;font-size:14px;color:var(--tx);margin:14px 0 6px}
+[data-theme=dark] .badge.fut{background:rgba(0,0,0,.35);color:#fff}
+[data-theme=dark] .badge.rec{color:#fff;background:rgba(255,255,255,.18)}
+
+/* ===================== TEMA CLARO ROSA ===================== */
+:root:not([data-theme=dark]){
+  --bg:#FFE4EE;--surface:#FFFFFF;--line:#F2BCD3;--tx:#3B0F2B;--mut:#8E5875;--br:#4A0F33;
+  --or:#E0246F;--or2:rgba(224,36,111,.13);--soft:#FFE0EC;--gold:#B7650A;--ok:#14803F;--bad:#C81E3C;
+  --sh:0 6px 20px rgba(224,36,111,.13);
+}
+:root:not([data-theme=dark]) html,:root:not([data-theme=dark]) body{background:#FFE4EE}
+:root:not([data-theme=dark]) body{background:linear-gradient(180deg,#FFEAF2 0%,#FFD6E6 100%) fixed}
+:root:not([data-theme=dark]) h1,:root:not([data-theme=dark]) h2,:root:not([data-theme=dark]) h3{color:#4A0F33}
+
+/* blocos de saldo */
+:root:not([data-theme=dark]) .stats div{color:#fff;box-shadow:0 6px 16px rgba(224,36,111,.2)}
+:root:not([data-theme=dark]) .stats span{color:rgba(255,255,255,.88)}
+:root:not([data-theme=dark]) .stats b{color:#fff}
+:root:not([data-theme=dark]) .t1{background:linear-gradient(135deg,#FF7BAA 0%,#E0246F 100%)}
+:root:not([data-theme=dark]) .t2{background:linear-gradient(135deg,#F472B6 0%,#A53BE8 100%)}
+:root:not([data-theme=dark]) .t3{background:linear-gradient(135deg,#FF9AA8 0%,#F0436A 100%)}
+
+/* containers com degradê branco → rosa e borda marcada */
+:root:not([data-theme=dark]) .card{background:linear-gradient(160deg,#FFFFFF 0%,#FFEBF3 100%);border:1.5px solid #EFA9C6;box-shadow:0 8px 24px rgba(224,36,111,.16)}
+:root:not([data-theme=dark]) .field{background:#fff;border-color:#EBA3C2}
+:root:not([data-theme=dark]) .field:focus-within{border-color:#E0246F;box-shadow:0 0 0 3px rgba(224,36,111,.18)}
+:root:not([data-theme=dark]) .field.lg input{color:#4A0F33}
+:root:not([data-theme=dark]) .datepick{background:#FFD3E4}
+:root:not([data-theme=dark]) .datepick button,:root:not([data-theme=dark]) .datepick .dl{color:#8E0F4A}
+:root:not([data-theme=dark]) .two{border-top-color:#EFB3CC}
+:root:not([data-theme=dark]) .profit{background:linear-gradient(120deg,#FF5C9A 0%,#E0246F 50%,#9B30E8 100%);box-shadow:0 8px 22px rgba(224,36,111,.3)}
+:root:not([data-theme=dark]) .pri{background:linear-gradient(135deg,#FF5C9A 0%,#E0246F 100%);box-shadow:0 6px 16px rgba(224,36,111,.32)}
+:root:not([data-theme=dark]) .pri:disabled{box-shadow:none}
+:root:not([data-theme=dark]) details.acc>summary{color:#6B1B4A}
+:root:not([data-theme=dark]) .brk .r{border-bottom-color:#F4CADB}
+:root:not([data-theme=dark]) .brk .r.b{background:#FFDCEA}
+:root:not([data-theme=dark]) .ghost{background:rgba(255,255,255,.7);border-color:#EBA3C2;color:#6B1B4A}
+:root:not([data-theme=dark]) .danger{color:#C81E3C;border-color:#F0A3B0}
+:root:not([data-theme=dark]) .ib{background:#FFD3E4;color:#8E0F4A}
+:root:not([data-theme=dark]) .themebtn{background:#fff;color:#C2185B;box-shadow:0 3px 10px rgba(224,36,111,.2)}
+:root:not([data-theme=dark]) .chip{background:#fff;border-color:#EBA3C2;color:#6B1B4A;box-shadow:0 3px 8px rgba(224,36,111,.1)}
+:root:not([data-theme=dark]) .chip.on{background:linear-gradient(135deg,#FF5C9A,#E0246F);color:#fff;border-color:transparent}
+:root:not([data-theme=dark]) .empty{border-color:#EBA3C2;background:rgba(255,255,255,.55)}
+:root:not([data-theme=dark]) .link{color:#C2185B}
+:root:not([data-theme=dark]) .chk input{accent-color:#E0246F}
+
+/* metas: gradiente a partir da cor da prioridade */
+:root:not([data-theme=dark]) .prow,:root:not([data-theme=dark]) .mcard{
+  background:linear-gradient(135deg,color-mix(in srgb,var(--pc) 26%,#fff) 0%,color-mix(in srgb,var(--pc) 7%,#fff) 100%);
+  border:1.5px solid color-mix(in srgb,var(--pc) 55%,#fff);border-left:5px solid var(--pc);
+  box-shadow:0 5px 16px color-mix(in srgb,var(--pc) 22%,transparent)}
+:root:not([data-theme=dark]) .prow{border-left-width:4px;box-shadow:0 3px 10px color-mix(in srgb,var(--pc) 16%,transparent)}
+:root:not([data-theme=dark]) .mgrid div{background:rgba(255,255,255,.8)}
+:root:not([data-theme=dark]) .bar{background:rgba(255,255,255,.9)}
+:root:not([data-theme=dark]) .mcard .ib{background:rgba(255,255,255,.9);color:#6B1B4A}
+:root:not([data-theme=dark]) .mcard .ghost{background:rgba(255,255,255,.75);border-color:color-mix(in srgb,var(--pc) 50%,#fff)}
+
+/* caixinhas e quadros */
+:root:not([data-theme=dark]) .crow{background:linear-gradient(120deg,#FFFFFF 0%,#FFE6F0 100%);border:1.5px solid #EFA9C6;box-shadow:0 4px 14px rgba(224,36,111,.1)}
+:root:not([data-theme=dark]) .grid .k{background:linear-gradient(145deg,#FFFFFF 0%,#FFE3EE 100%);border:1.5px solid #EFA9C6;box-shadow:0 4px 12px rgba(224,36,111,.1)}
+:root:not([data-theme=dark]) .distbar{background:#FFD3E4}
+:root:not([data-theme=dark]) .monthnav button{background:#fff;color:#C2185B;box-shadow:0 3px 8px rgba(224,36,111,.18)}
+:root:not([data-theme=dark]) .mini{border-bottom-color:#F2BCD3}
+
+/* projeção */
+:root:not([data-theme=dark]) .card.hero{background:linear-gradient(135deg,#FF6FA8 0%,#E0246F 52%,#8E2DE2 100%);border-color:rgba(255,255,255,.55);box-shadow:0 12px 32px rgba(224,36,111,.34)}
+:root:not([data-theme=dark]) .hl,:root:not([data-theme=dark]) .hs,:root:not([data-theme=dark]) .hbase,:root:not([data-theme=dark]) .hgrid small{color:rgba(255,255,255,.88)}
+:root:not([data-theme=dark]) .hv{color:#fff;text-shadow:0 2px 12px rgba(80,0,50,.25)}
+:root:not([data-theme=dark]) .hv.neg{color:#FFE3E8}
+:root:not([data-theme=dark]) .hgrid div{background:rgba(255,255,255,.2)}
+:root:not([data-theme=dark]) .hgrid b,:root:not([data-theme=dark]) .hs b{color:#fff}
+:root:not([data-theme=dark]) .ptab td{border-bottom-color:#F4CADB}
+:root:not([data-theme=dark]) .ptab tr.tot td{background:#FFDCEA}
+:root:not([data-theme=dark]) .ptab tr.fin td{background:#D3F3E0;color:#0F6B34}
+
+/* calendário */
+:root:not([data-theme=dark]) .cal button{background:#fff;border-color:#F2BCD3;color:#4A0F33;box-shadow:0 2px 6px rgba(224,36,111,.08)}
+:root:not([data-theme=dark]) .cal button.today{border-color:#E0246F}
+:root:not([data-theme=dark]) .cal button.wk{background:linear-gradient(145deg,#ECE4E8,#DDD2D8)}
+:root:not([data-theme=dark]) .cal button.wk.ok{background:linear-gradient(145deg,#C9F2DB,#8EDDB2)}
+:root:not([data-theme=dark]) .cal button.wk.miss{background:linear-gradient(145deg,#FFD0D6,#F7A1B0)}
+:root:not([data-theme=dark]) .cal button.off{background:repeating-linear-gradient(45deg,#fff 0 6px,#FFE6F0 6px 12px)}
+
+/* navegação, janelas e avisos */
+:root:not([data-theme=dark]) #nav{background:rgba(255,255,255,.9);border:1.5px solid #EFA9C6;box-shadow:0 10px 28px rgba(224,36,111,.25)}
+:root:not([data-theme=dark]) #nav button.on{background:linear-gradient(135deg,#FFCFE2,#FFE3EE);color:#C2185B}
+:root:not([data-theme=dark]) .ov{background:rgba(74,15,51,.5)}
+:root:not([data-theme=dark]) .sheet{background:linear-gradient(180deg,#FFFFFF 0%,#FFE6F0 100%);border-top:1.5px solid #EFA9C6}
+:root:not([data-theme=dark]) .sheet input:not([type=checkbox]),:root:not([data-theme=dark]) .sheet textarea{border-color:#EBA3C2;background:#fff}
+:root:not([data-theme=dark]) .sheet input:focus{border-color:#E0246F}
+:root:not([data-theme=dark]) .grab{background:#EBA3C2}
+:root:not([data-theme=dark]) .list button.opt{border-bottom-color:#F2BCD3}
+:root:not([data-theme=dark]) #toast{background:linear-gradient(135deg,#6B1B4A,#4A0F33)}
