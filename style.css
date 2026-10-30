@@ -446,3 +446,15 @@ button:active{transform:scale(.97)}
 .bigv{font-size:24px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
 .card.saldo{margin-top:0}
 .sheet input[name=v]{font-size:20px;font-weight:600}
+
+/* campos de data (iOS/Safari ignoram a largura): travam dentro do container */
+.sheet .two-in>div{min-width:0;overflow:hidden}
+.sheet .two-in label{min-width:0}
+.sheet input[type=date]{
+  -webkit-appearance:none;appearance:none;display:block;box-sizing:border-box;
+  width:100%;min-width:0;max-width:100%;height:46px;margin:0;line-height:1.2;text-align:left;
+}
+.sheet input[type=date]::-webkit-date-and-time-value{text-align:left;min-width:0;margin:0}
+.sheet input[type=date]::-webkit-datetime-edit{padding:0;min-width:0}
+.sheet input[type=date]::-webkit-calendar-picker-indicator{margin:0 0 0 4px;padding:0}
+.datepick input[type=date]{-webkit-appearance:none;appearance:none}
