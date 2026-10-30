@@ -4,6 +4,18 @@
 
 const KEY = 'metas-financeiras-v1';
 const COLORS = ['#F04A00', '#C98A12', '#2E8B57', '#2A62B0', '#8E44AD', '#C0392B', '#16A0A0', '#7F6A5B'];
+/* Cores por prioridade (P1 = mais urgente). Cada meta usa o tom da sua posição na lista. */
+const PRIO = [
+  { c: '#D93636', bg: '#FCE7E4', bd: '#F2BDB6' },
+  { c: '#E8590C', bg: '#FDEBDC', bd: '#F6C8A4' },
+  { c: '#C98A12', bg: '#FBF1D3', bd: '#ECD594' },
+  { c: '#2E8B57', bg: '#DFF2E7', bd: '#ADDABD' },
+  { c: '#2A62B0', bg: '#E0EAF8', bd: '#B3CAEB' },
+  { c: '#7B4FB0', bg: '#ECE3F7', bd: '#D0BBE8' }
+];
+const prio = k => PRIO[k % PRIO.length];
+const pstyle = k => { const p = prio(k); return `--pc:${p.c};--pbg:${p.bg};--pbd:${p.bd}`; };
+const EMPRESA = 'caixa-empresa'; // caixinha automática: recebe o custo da mercadoria
 const SUGESTOES = ['Lazer', 'Investimentos', 'Transporte', 'Saúde', 'Reserva de Emergência'];
 
 /* ---------- utilidades ---------- */
@@ -46,7 +58,10 @@ function load() {
 function migrate(s) {
   s.cfg = s.cfg || { custo: 0, usar: false };
   if (!Array.isArray(s.cfg.semana)) s.cfg.semana = [1, 2, 3, 4, 5, 6]; // padrão: seg a sáb
-  s.work = s.work || {};                                               // exceções: { 'AAAA-MM-DD': true|false }
+  s.work = s.work || {};
+  s.caixinhas = s.caixinhas || [];
+  if (!s.caixinhas.some(c => c.fixa === 'empresa'))
+    s.caixinhas.unshift({ id: 'caixa-empresa', nome: 'Caixa da Empresa', pct: 0, cor: '#4E2E20', fixa: 'empresa' });                                               // exceções: { 'AAAA-MM-DD': true|false }
   return s;
 }
 let S = migrate(load());
@@ -138,8 +153,11 @@ function compute(d) {
   }
   const restante = left;
   const c = {}; let used = 0;
-  S.caixinhas.forEach(x => { const v = Math.floor(restante * x.pct / 100); c[x.id] = v; used += v; });
-  return { custoTotal, lucro, disp, m, infos, restante, c, livre: restante - used };
+  S.caixinhas.filter(x => !x.fixa).forEach(x => { const v = Math.floor(restante * x.pct / 100); c[x.id] = v; used += v; });
+  // o custo da mercadoria é separado primeiro, automaticamente, na Caixa da Empresa
+  const empresa = Math.min(Math.max(0, custoTotal), Math.max(0, d.receita));
+  c[EMPRESA] = empresa;
+  return { custoTotal, lucro, disp, m, infos, restante, c, empresa, livre: restante - used };
 }
 function draftNums() {
   return {
@@ -150,14 +168,21 @@ function draftNums() {
 
 /* ---------- UI helpers ---------- */
 let toastT;
-function toast(msg) {
-  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600);
+function toast(msg, undo) {
+  const t = $('#toast');
+  t.innerHTML = esc(msg) + (undo ? ' <button type="button" data-undo>Desfazer</button>' : '');
+  t._undo = undo || null;
+  t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), undo ? 6000 : 2600);
 }
+$('#toast').addEventListener('click', e => {
+  const t = $('#toast');
+  if (e.target.hasAttribute('data-undo') && t._undo) { t._undo(); t._undo = null; t.classList.remove('show'); }
+});
 function modal(title, body, onSubmit, opts = {}) {
   const o = document.createElement('div');
   o.className = 'ov';
-  o.innerHTML = `<form class="sheet"><h3>${title}</h3>${body}<div class="btns">${opts.extra || ''}<button type="button" class="ghost" data-close>${opts.nosave ? 'Fechar' : 'Cancelar'}</button>${opts.nosave ? '' : '<button class="pri">Salvar</button>'}</div></form>`;
+  o.innerHTML = `<form class="sheet"><div class="grab"></div><h3>${title}</h3>${body}<div class="btns">${opts.extra || ''}<button type="button" class="ghost" data-close>${opts.nosave ? 'Fechar' : 'Cancelar'}</button>${opts.nosave ? '' : '<button class="pri">Salvar</button>'}</div></form>`;
   document.body.appendChild(o);
   const close = () => o.remove();
   o.addEventListener('click', e => { if (e.target === o || e.target.hasAttribute('data-close')) close(); });
@@ -172,6 +197,7 @@ function modal(title, body, onSubmit, opts = {}) {
 const closeModals = () => document.querySelectorAll('.ov').forEach(o => o.remove());
 
 const ICON = {
+  trend: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>',
   inicio: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>',
   metas: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg>',
   mensal: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16M8 3v4M16 3v4M8 14h8M8 17.5h5"/></svg>',
@@ -182,44 +208,52 @@ const ICON = {
 };
 
 /* ---------- views ---------- */
+function dateLabel(d) {
+  const T = today();
+  if (d === T) return 'Hoje';
+  if (d === addDays(T, -1)) return 'Ontem';
+  if (d === addDays(T, 1)) return 'Amanhã';
+  return fmtDate(d).slice(0, 5);
+}
+
 function vInicio() {
   const b = balances();
   return `
   <header class="top"><h1>Metas Financeiras</h1><div class="sub">${fmtLong(today())}</div></header>
-  <section class="stats">
-    <div><span>Saldo livre</span><b>${fmt(b.livre)}</b></div>
-    <div><span>Em metas</span><b>${fmt(b.metas)}</b></div>
-    <div><span>Em caixinhas</span><b>${fmt(b.cx)}</b></div>
-  </section>
+  <div class="stats">
+    <div class="t1"><span>Saldo livre</span><b>${fmt(b.livre)}</b></div>
+    <div class="t2"><span>Em metas</span><b>${fmt(b.metas)}</b></div>
+    <div class="t3"><span>Caixinhas</span><b>${fmt(b.cx)}</b></div>
+  </div>
   ${vEntrada()}
   ${vMetasHoje()}
   ${vCaixinhas()}
-  <details class="big"><summary>Resumo financeiro de hoje</summary><div id="resumo"></div></details>`;
+  <details class="acc"><summary>Resumo financeiro de hoje</summary><div id="resumo"></div></details>`;
 }
 
 function vEntrada() {
   return `
   <div class="card entry">
-    <div class="row"><h2>Entrada do Dia</h2><input type="date" data-f="date" value="${esc(draft.date)}" style="border:0;background:transparent;color:var(--mut);font:inherit;text-align:right"></div>
-    <label>Custo da Mercadoria (unitário)</label>${ICON.box}
-    <div class="field"><span>R$</span><input inputmode="decimal" data-f="custo" placeholder="0,00" value="${esc(draft.custo)}"></div>
-    <label>Quantidade Vendida</label>${ICON.hash}
-    <div class="field"><input inputmode="decimal" data-f="qtd" placeholder="0" value="${esc(draft.qtd)}"></div>
-    <label>Dinheiro do Dia (total recebido)</label>${ICON.cash}
-    <div class="field"><span>R$</span><input inputmode="decimal" data-f="receita" placeholder="0,00" value="${esc(draft.receita)}"></div>
+    <div class="row"><h2>Entrada do Dia</h2>
+      <div class="datepick"><button type="button" data-a="dprev" aria-label="Dia anterior">‹</button><label class="dl">${dateLabel(draft.date)}<input type="date" data-f="date" value="${esc(draft.date)}"></label><button type="button" data-a="dnext" aria-label="Próximo dia">›</button></div>
+    </div>
+    <div class="two-in">
+      <div><label>Custo unitário</label><div class="field">${ICON.box}<span>R$</span><input inputmode="decimal" enterkeyhint="next" data-f="custo" placeholder="0,00" value="${esc(draft.custo)}"></div></div>
+      <div><label>Qtd. vendida</label><div class="field">${ICON.hash}<input inputmode="decimal" enterkeyhint="next" data-f="qtd" placeholder="0" value="${esc(draft.qtd)}"></div></div>
+    </div>
+    <label>Dinheiro do dia (total recebido)</label>
+    <div class="field lg">${ICON.cash}<span>R$</span><input inputmode="decimal" enterkeyhint="done" data-f="receita" placeholder="0,00" value="${esc(draft.receita)}"></div>
     <div id="calc1"></div>
-    <details><summary>Detalhes do lucro</summary><div id="det" class="brk"></div></details>
+    <details class="acc"><summary>Detalhes do lucro</summary><div id="det" class="brk"></div></details>
     <label class="chk"><input type="checkbox" data-f="usar" ${draft.usar ? 'checked' : ''}> Usar este custo unitário nos próximos dias</label>
-    <div class="sep"></div>
-    <details class="big"><summary>Despesas e observações</summary>
-      <label>Despesas do dia (R$)</label>
+    <details class="acc"><summary>Despesas e observações</summary>
+      <label>Despesas do dia</label>
       <div class="field"><span>R$</span><input inputmode="decimal" data-f="despesas" placeholder="0,00" value="${esc(draft.despesas)}"></div>
       <label>Observações</label>
-      <div class="field" style="height:auto;padding:10px 16px"><input data-f="obs" placeholder="Opcional" value="${esc(draft.obs)}"></div>
+      <div class="field"><input data-f="obs" placeholder="Opcional" value="${esc(draft.obs)}"></div>
     </details>
-    <div class="sep"></div>
     <label class="chk"><input type="checkbox" data-f="adiantar" ${draft.adiantar ? 'checked' : ''}> Adiantar metas com o excedente</label>
-    <div id="calc2" class="brk"></div>
+    <details class="acc" open><summary>Para onde vai o dinheiro</summary><div id="calc2" class="brk"></div></details>
     <button class="pri" data-a="registrar" id="btnReg">Registrar</button>
   </div>`;
 }
@@ -227,12 +261,13 @@ function vEntrada() {
 function vMetasHoje() {
   if (!S.metas.length) return '';
   const D = today();
-  return `<section><div class="row"><h3 style="margin:0">Metas de hoje</h3><button class="ghost sm" data-a="tab" data-id="metas">Ver metas</button></div>${isWork(D) ? '' : '<div class="mut" style="margin:6px 0">Hoje é folga — as metas não recebem cota hoje.</div>'}
-  ${S.metas.map(m => {
+  return `<details class="acc" open><summary>Metas de hoje</summary>
+  ${isWork(D) ? '' : '<div class="mut note">Hoje é folga — as metas não recebem cota.</div>'}
+  <div class="plist">${S.metas.map((m, k) => {
     const i = metaInfo(m, D);
-    return `<div class="mini"><div>${esc(m.nome)}<small>${i.status === 'done' ? 'Concluída' : 'até ' + fmtDate(m.prazo)}</small></div>
-    <div style="text-align:right"><b>${i.status === 'done' ? '✓' : fmt(i.hoje)}</b><small>${i.status === 'done' ? '' : 'guardar hoje'}</small></div></div>`;
-  }).join('')}</section>`;
+    return `<div class="prow" style="${pstyle(k)}"><i class="pd">P${k + 1}</i><span class="pn">${esc(m.nome)}<small>${i.status === 'done' ? 'Concluída' : 'até ' + fmtDate(m.prazo).slice(0, 5)}</small></span><b>${i.status === 'done' ? '✓' : fmt(i.hoje)}</b></div>`;
+  }).join('')}</div>
+  <button class="link" data-a="tab" data-id="metas">Ver todas as metas ›</button></details>`;
 }
 
 function vCaixinhas() {
@@ -240,20 +275,22 @@ function vCaixinhas() {
   const tot = S.caixinhas.reduce((a, c) => a + c.pct, 0);
   const D = today();
   const has = new Set(S.caixinhas.map(c => c.nome.toLowerCase()));
-  const sug = SUGESTOES.filter(s => !has.has(s.toLowerCase()));
+  const sug = SUGESTOES.filter(x => !has.has(x.toLowerCase()));
+  const seg = S.caixinhas.filter(c => !c.fixa && c.pct > 0);
   return `<section>
-    <div class="row"><h2>Minhas Caixinhas</h2><button class="pri sm" data-a="novaCx">+ Nova caixinha</button></div>
-    <div class="grid" style="margin:14px 0"><div class="k"><span>Saldo em caixinhas</span><b>${fmt(b.cx)}</b></div><div class="k"><span>Saldo livre</span><b class="${b.livre < 0 ? 'neg' : ''}">${fmt(b.livre)}</b></div></div>
-    <h3 style="margin-bottom:4px">Distribuição automática: ${tot}%</h3>
-    <div class="${tot > 100 ? 'neg' : 'gold'}">${tot > 100 ? 'Passou de 100%! Ajuste as caixinhas.' : (100 - tot) + '% continuará no saldo livre.'}</div>
-    <div class="actions"><button class="ghost" data-a="dist100">Distribuir 100%</button></div>
-    ${S.caixinhas.map(c => {
+    <div class="row"><h3>Minhas Caixinhas</h3><button class="pri sm" data-a="novaCx">+ Nova</button></div>
+    <div class="distbar">${seg.map(c => `<i style="width:${c.pct}%;background:${c.cor}"></i>`).join('')}</div>
+    <div class="row dline"><span>Distribuição automática: <b>${tot}%</b></span><button class="ghost sm" data-a="dist100">Distribuir 100%</button></div>
+    <div class="${tot > 100 ? 'neg' : 'gold'} note">${tot > 100 ? 'Passou de 100%! Ajuste as caixinhas.' : (100 - tot) + '% continuará no saldo livre.'}</div>
+    <div class="clist">${S.caixinhas.map(c => {
       const hoje = S.entries.filter(e => e.date === D).reduce((a, e) => a + ((e.aloc.c || {})[c.id] || 0), 0);
-      return `<div class="card"><div class="row"><b style="font-size:20px"><span class="dot" style="background:${c.cor}"></span>${esc(c.nome)}</b><span class="pct">${c.pct}%</span></div>
-      <div class="big">${fmt(sumC(c.id))}</div><div class="mut">Recebido hoje: ${fmt(hoje)}</div>
-      <div class="sep"></div><div class="actions"><button class="ghost" data-a="editCx" data-id="${c.id}">✎ Editar</button><span class="sp"></span><button class="ghost" data-a="opcCx" data-id="${c.id}">··· Opções</button></div></div>`;
-    }).join('') || '<div class="empty">Nenhuma caixinha ainda.</div>'}
-    ${sug.length ? `<details open><summary style="color:var(--tx);font-size:18px;font-weight:600">Sugestões de caixinhas</summary><div class="chips">${sug.map(s => `<button class="chip" data-a="sugestao" data-id="${esc(s)}">+ ${esc(s)}</button>`).join('')}</div></details>` : ''}
+      return `<div class="crow"><span class="dot" style="background:${c.cor}"></span>
+        <div class="cn"><b>${esc(c.nome)}</b><small>${c.fixa ? 'automática · custo da mercadoria' : c.pct + '%'} · hoje ${fmt(hoje)}</small></div>
+        <div class="cv">${fmt(sumC(c.id))}</div>
+        ${c.fixa ? '' : `<button class="ib" data-a="editCx" data-id="${c.id}" aria-label="Editar">✎</button>`}<button class="ib" data-a="opcCx" data-id="${c.id}" aria-label="Opções">⋯</button></div>`;
+    }).join('') || '<div class="empty">Nenhuma caixinha ainda.</div>'}</div>
+    <div class="row mini2"><span>Saldo livre</span><b class="${b.livre < 0 ? 'neg' : ''}">${fmt(b.livre)}</b></div>
+    ${sug.length ? `<details class="acc" open><summary>Sugestões</summary><div class="chips">${sug.map(x => `<button class="chip" data-a="sugestao" data-id="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div></details>` : ''}
   </section>`;
 }
 
@@ -262,24 +299,23 @@ function vMetas() {
   const infos = S.metas.map(m => ({ m, i: metaInfo(m, D) }));
   const totHoje = infos.reduce((a, x) => a + x.i.hoje, 0);
   return `<header class="top row"><div><h1>Metas</h1><div class="sub">Por ordem de prioridade</div></div><button class="pri sm" data-a="novaMeta">+ Nova meta</button></header>
-  <div class="grid"><div class="k"><span>Guardar hoje (total)</span><b>${fmt(totHoje)}</b></div><div class="k"><span>Saldo livre</span><b>${fmt(balances().livre)}</b></div></div>
+  <div class="stats two"><div class="t2"><span>Guardar hoje</span><b>${fmt(totHoje)}</b></div><div class="t1"><span>Saldo livre</span><b>${fmt(balances().livre)}</b></div></div>
   ${infos.map(({ m, i }, k) => {
     const badge = { done: '<span class="badge ok">Concluída</span>', late: '<span class="badge late">Vencida</span>', behind: '<span class="badge late">Atrasada</span>', ahead: '<span class="badge ahead">Adiantada</span>', ok: '' }[i.status];
-    return `<div class="card">
-      <div class="row"><b style="font-size:19px">${k + 1}. ${esc(m.nome)}${badge}</b><span class="pct">até ${fmtDate(m.prazo)}</span></div>
+    const dias = m.prazo < D ? 'vencida' : i.dl === 0 ? 'sem dias de trabalho' : i.dl + (i.dl > 1 ? ' dias' : ' dia');
+    return `<div class="mcard" style="${pstyle(k)}">
+      <div class="mh"><span class="pb">P${k + 1}</span><b class="mn">${esc(m.nome)}</b>${badge}<span class="mdate">${fmtDate(m.prazo).slice(0, 5)} · ${dias}</span></div>
       <div class="bar"><i style="width:${i.pct}%"></i></div>
-      <div class="row mut"><span>${fmt(i.saved)} de ${fmt(m.valor)}</span><span>${i.pct}%</span></div>
-      ${i.status === 'done' ? '' : `<div class="row" style="margin-top:10px"><span>Guardar hoje</span><b>${fmt(i.hoje)}</b></div>
-      <div class="row mut"><span>Por dia de trabalho (${m.prazo < today() ? 'vencida' : i.dl === 0 ? 'sem dias de trabalho até o prazo' : i.dl + ' dia' + (i.dl > 1 ? 's' : '') + ' restante' + (i.dl > 1 ? 's' : '')})</span><span>${fmt(i.perDay)}</span></div>
-      <div class="row mut"><span>Falta</span><span>${fmt(i.rem)}</span></div>`}
-      <div class="actions">
-        <button class="ghost sm" data-a="up" data-id="${m.id}" ${k === 0 ? 'disabled' : ''}>↑</button>
-        <button class="ghost sm" data-a="down" data-id="${m.id}" ${k === S.metas.length - 1 ? 'disabled' : ''}>↓</button>
+      <div class="mrow"><span>${fmt(i.saved)} de ${fmt(m.valor)}</span><b>${i.pct}%</b></div>
+      ${i.status === 'done' ? '' : `<div class="mgrid"><div><small>Hoje</small><b>${fmt(i.hoje)}</b></div><div><small>Por dia</small><b>${fmt(i.perDay)}</b></div><div><small>Falta</small><b>${fmt(i.rem)}</b></div></div>`}
+      <div class="macts">
+        <button class="ib" data-a="up" data-id="${m.id}" ${k === 0 ? 'disabled' : ''} aria-label="Subir prioridade">↑</button>
+        <button class="ib" data-a="down" data-id="${m.id}" ${k === S.metas.length - 1 ? 'disabled' : ''} aria-label="Descer prioridade">↓</button>
         <span class="sp"></span>
         <button class="ghost sm" data-a="editMeta" data-id="${m.id}">Editar</button>
         ${i.status === 'done' ? '' : `<button class="ghost sm" data-a="depMeta" data-id="${m.id}">Adiantar</button>`}
       </div></div>`;
-  }).join('') || '<div class="empty" style="margin-top:14px">Crie sua primeira meta: informe o valor total e até quando precisa guardar. O app calcula quanto guardar por dia.</div>'}`;
+  }).join('') || '<div class="empty" style="margin-top:12px">Crie sua primeira meta: informe o valor total e até quando precisa guardar. O app calcula quanto guardar por dia.<br><button class="pri sm" style="margin-top:10px" data-a="novaMeta">+ Criar meta</button></div>'}`;
 }
 
 function monthEntries() { return S.entries.filter(e => e.date.startsWith(mes)).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id)); }
@@ -295,7 +331,8 @@ function vMensal() {
   const sum = f => dias.reduce((a, e) => a + f(e), 0);
   const rec = sum(e => e.receita), custo = sum(e => e.custoTotal), desp = sum(e => e.despesas), lucro = sum(e => e.lucro);
   const toMetas = sum(e => Object.values(e.aloc.m || {}).reduce((a, v) => a + v, 0));
-  const toCx = sum(e => Object.values(e.aloc.c || {}).reduce((a, v) => a + v, 0));
+  const toCx = sum(e => Object.entries(e.aloc.c || {}).reduce((a, [k, v]) => k === EMPRESA ? a : a + v, 0));
+  const toEmp = sum(e => (e.aloc.c || {})[EMPRESA] || 0);
   const nd = new Set(dias.map(e => e.date)).size;
   return `${monthNav('Mensal')}
   <div class="grid">
@@ -305,8 +342,10 @@ function vMensal() {
     <div class="k"><span>Lucro líquido</span><b class="${lucro - desp < 0 ? 'neg' : 'pos'}">${fmt(lucro - desp)}</b></div>
     <div class="k"><span>Foi para metas</span><b>${fmt(toMetas)}</b></div>
     <div class="k"><span>Foi para caixinhas</span><b>${fmt(toCx)}</b></div>
+    <div class="k"><span>Caixa da Empresa</span><b>${fmt(toEmp)}</b></div>
     <div class="k"><span>Dias trabalhados</span><b>${nd}</b></div>
     <div class="k"><span>Média de lucro/dia</span><b>${fmt(nd ? Math.round((lucro - desp) / nd) : 0)}</b></div>
+    <div class="k"><span>Lançamentos</span><b>${dias.length}</b></div>
   </div>
   <section><h3>Lançamentos</h3>
   ${es.map(e => { const d = entDesc(e); return `<div class="mini"><div>${fmtDate(e.date)} · ${d.t}<small>${d.s}</small></div><button class="ghost sm danger" data-a="delEntry" data-id="${e.id}">Excluir</button></div>`; }).join('') || '<div class="empty">Sem lançamentos neste mês.</div>'}
@@ -316,6 +355,28 @@ function vMensal() {
 }
 
 let calEdit = false;
+
+/* Meta do dia = soma das cotas das metas naquele dia (o que precisava guardar);
+   guardado = quanto de fato foi para metas nas entradas daquele dia. */
+function dayStats(date) {
+  const goal = S.metas.reduce((a, m) => {
+    if (date < m.inicio || date > m.prazo) return a;
+    const rem = m.valor - sumM(m.id, e => e.date < date);
+    if (rem <= 0) return a;
+    const wd = Math.max(1, workDays(date, m.prazo));
+    return a + Math.min(rem, Math.ceil(rem / wd));
+  }, 0);
+  const got = S.entries.filter(e => e.date === date).reduce((a, e) => a + Object.values(e.aloc.m || {}).reduce((x, v) => x + v, 0), 0);
+  const hasEntry = S.entries.some(e => e.date === date && e.type === 'dia');
+  const T = today();
+  let res = '';                                   // '' = cinza (futuro / em andamento)
+  if (date <= T) {
+    if (goal === 0) res = hasEntry ? 'ok' : '';
+    else if (got >= goal) res = 'ok';             // bateu ou superou
+    else if (date < T) res = 'miss';              // não atingiu (hoje só fica vermelho depois de virar o dia)
+  }
+  return { goal, got, res };
+}
 const NOMES_DIA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const quotaTotal = () => { const T = today(); return S.metas.reduce((a, m) => a + metaInfo(m, T).perDay, 0); };
 
@@ -334,7 +395,8 @@ function vCal() {
     const dias = S.entries.filter(e => e.date === date && e.type === 'dia');
     const luc = dias.reduce((a, e) => a + e.lucro - e.despesas, 0);
     const due = S.metas.some(mt => mt.prazo === date);
-    h += `<button class="${date === T ? 'today' : ''} ${dias.length ? 'has' : ''} ${w ? '' : 'off'} ${tag === 'extra' ? 'extra' : ''}" data-a="day" data-id="${date}">${d}${tag ? `<em>${tag}</em>` : ''}${dias.length ? `<small class="${luc < 0 ? 'neg' : ''}">${short(luc)}</small>` : ''}${due ? '<i></i>' : ''}</button>`;
+    const st = w ? dayStats(date).res : '';
+    h += `<button class="${date === T ? 'today' : ''} ${dias.length ? 'has' : ''} ${w ? 'wk ' + st : 'off'} ${tag === 'extra' ? 'extra' : ''}" data-a="day" data-id="${date}">${d}${tag ? `<em>${tag}</em>` : ''}${dias.length ? `<small class="${luc < 0 ? 'neg' : ''}">${short(luc)}</small>` : ''}${due ? '<i></i>' : ''}</button>`;
   }
   return `${monthNav('Calendário')}
   <div class="grid" style="margin-bottom:14px"><div class="k"><span>Dias de trabalho no mês</span><b>${nw}</b></div><div class="k"><span>Cota diária das metas</span><b>${fmt(quotaTotal())}</b></div></div>
@@ -343,7 +405,7 @@ function vCal() {
   <div class="actions" style="margin:0 0 12px"><button class="${calEdit ? 'pri sm' : 'ghost'}" data-a="calEdit">${calEdit ? '✓ Editando dias' : 'Escolher dias'}</button><button class="ghost" data-a="resetMes">Restaurar padrão do mês</button></div>
   ${calEdit ? '<div class="gold" style="margin-bottom:10px;font-size:14px">Toque nos dias para alternar entre trabalho e folga. As metas são recalculadas a cada toque.</div>' : ''}
   <div class="cal">${h}</div>
-  <p class="mut" style="margin-top:14px;font-size:13px">Listrado = folga · “extra” = dia de trabalho fora do padrão · número = lucro líquido · ● = prazo de meta. ${calEdit ? '' : 'Toque num dia para ver detalhes, marcar folga/extra ou lançar.'}</p>`;
+  <p class="mut" style="margin-top:14px;font-size:13px">Cinza = dia de trabalho · verde = meta do dia batida · vermelho = meta do dia não atingida · listrado = folga · “extra” = dia fora do padrão · número = lucro líquido · ● = prazo de meta. ${calEdit ? '' : 'Toque num dia para ver detalhes, marcar folga/extra ou lançar.'}</p>`;
 }
 
 function render() {
@@ -356,24 +418,26 @@ function render() {
 function renderPreview() {
   const c1 = $('#calc1'); if (!c1) return;
   const d = draftNums(), r = compute(d);
-  c1.innerHTML = `<div class="two"><div><span>Custo Total</span><b>${fmt(r.custoTotal)}</b></div><div><span>Receita</span><b>${fmt(d.receita)}</b></div></div>
-  <div class="profit"><span>↗ Lucro do Dia</span><b class="${r.lucro < 0 ? 'neg' : ''}">${fmt(r.lucro)}</b></div>`;
+  c1.innerHTML = `<div class="two"><div><span>Custo total</span><b>${fmt(r.custoTotal)}</b></div><div><span>Receita</span><b>${fmt(d.receita)}</b></div></div>
+  <div class="profit"><span>${ICON.trend} Lucro do dia</span><b class="${r.lucro < 0 ? 'neg' : ''}">${fmt(r.lucro)}</b></div>`;
   $('#det').innerHTML = `<div class="r"><span>Receita</span><span>${fmt(d.receita)}</span></div><div class="r"><span>− Custo (${fmt(d.custo)} × ${d.qtd || 0})</span><span>${fmt(r.custoTotal)}</span></div><div class="r b"><span>Lucro</span><span>${fmt(r.lucro)}</span></div>`;
-  $('#calc2').innerHTML = `${isWork(d.date) ? '' : '<div class="mut" style="padding:6px 0">Dia de folga: as metas não recebem cota. Marque “Adiantar metas” para guardar mesmo assim.</div>'}
-    <div class="r"><span>Recebido (lucro)</span><span>${fmt(r.lucro)}</span></div>
-    <div class="r"><span>Despesas</span><span>${fmt(d.despesas)}</span></div>
+  const emp = S.caixinhas.find(c => c.fixa);
+  $('#calc2').innerHTML = `${isWork(d.date) ? '' : '<div class="mut note">Dia de folga: as metas não recebem cota. Marque “Adiantar metas” para guardar mesmo assim.</div>'}
+    <div class="r"><span><i class="dot" style="background:${emp ? emp.cor : '#4E2E20'}"></i>Caixa da Empresa<small>custo da mercadoria</small></span><span>${fmt(r.empresa)}</span></div>
+    <div class="r"><span>Lucro recebido</span><span>${fmt(r.lucro)}</span></div>
+    <div class="r"><span>Despesas</span><span>− ${fmt(d.despesas)}</span></div>
     <div class="r b"><span>Disponível para metas</span><span>${fmt(r.disp)}</span></div>
     ${S.metas.map((m, k) => { const i = r.infos[k]; const g = r.m[m.id] || 0;
-      return `<div class="r"><span>${esc(m.nome)}${g < i.hoje ? `<small>faltou ${fmt(i.hoje - g)} da cota de hoje</small>` : ''}</span><span>${i.status === 'done' ? '✓' : fmt(g)}</span></div>`; }).join('')}
+      return `<div class="r" style="${pstyle(k)}"><span><i class="dot" style="background:var(--pc)"></i>${esc(m.nome)}${g < i.hoje ? `<small>faltou ${fmt(i.hoje - g)} da cota de hoje</small>` : ''}</span><span>${i.status === 'done' ? '✓' : fmt(g)}</span></div>`; }).join('')}
     <div class="r b"><span>Restante após metas</span><span>${fmt(r.restante)}</span></div>
-    ${S.caixinhas.map(c => `<div class="r"><span>${esc(c.nome)} · ${c.pct}%</span><span>${fmt(r.c[c.id] || 0)}</span></div>`).join('')}
+    ${S.caixinhas.filter(c => !c.fixa).map(c => `<div class="r"><span><i class="dot" style="background:${c.cor}"></i>${esc(c.nome)} · ${c.pct}%</span><span>${fmt(r.c[c.id] || 0)}</span></div>`).join('')}
     <div class="r b"><span>Saldo livre desta entrada</span><span>${fmt(r.livre)}</span></div>`;
   $('#btnReg').disabled = d.receita <= 0;
   const rs = $('#resumo');
   if (rs) {
     const T = today(), es = S.entries.filter(e => e.date === T && e.type === 'dia');
     const sm = f => es.reduce((a, e) => a + f(e), 0);
-    rs.innerHTML = es.length ? `<div class="brk"><div class="r"><span>Lançamentos</span><span>${es.length}</span></div><div class="r"><span>Receita</span><span>${fmt(sm(e => e.receita))}</span></div><div class="r"><span>Custo</span><span>${fmt(sm(e => e.custoTotal))}</span></div><div class="r"><span>Despesas</span><span>${fmt(sm(e => e.despesas))}</span></div><div class="r b"><span>Lucro líquido</span><span>${fmt(sm(e => e.lucro - e.despesas))}</span></div></div>` : '<div class="mut" style="padding:6px 0">Nada registrado hoje.</div>';
+    rs.innerHTML = es.length ? `<div class="brk"><div class="r"><span>Lançamentos</span><span>${es.length}</span></div><div class="r"><span>Receita</span><span>${fmt(sm(e => e.receita))}</span></div><div class="r"><span>Custo</span><span>${fmt(sm(e => e.custoTotal))}</span></div><div class="r"><span>Despesas</span><span>${fmt(sm(e => e.despesas))}</span></div><div class="r b"><span>Lucro líquido</span><span>${fmt(sm(e => e.lucro - e.despesas))}</span></div></div>` : '<div class="mut note">Nada registrado hoje.</div>';
   }
 }
 
@@ -382,8 +446,9 @@ function registrar() {
   const d = draftNums();
   if (d.receita <= 0) return toast('Informe o dinheiro do dia');
   const r = compute(d);
+  const eid = uid();
   S.entries.push({
-    id: uid(), type: 'dia', date: d.date, custo: d.custo, qtd: d.qtd, receita: d.receita,
+    id: eid, type: 'dia', date: d.date, custo: d.custo, qtd: d.qtd, receita: d.receita,
     custoTotal: r.custoTotal, lucro: r.lucro, despesas: d.despesas, obs: draft.obs.trim(),
     aloc: { m: r.m, c: r.c, l: r.livre }
   });
@@ -392,7 +457,8 @@ function registrar() {
   const keep = draft.usar;
   draft = newDraft(); if (keep) draft.custo = inp(S.cfg.custo);
   render();
-  toast('Entrada registrada ✓');
+  if (navigator.vibrate) navigator.vibrate(15);
+  toast('Entrada registrada ✓', () => { S.entries = S.entries.filter(e => e.id !== eid); save(); render(); });
 }
 
 function metaModal(id) {
@@ -456,7 +522,7 @@ function cxModal(id, nomeInicial) {
 
 function opcCx(id) {
   const c = S.caixinhas.find(x => x.id === id), bal = sumC(id);
-  const mo = modal(esc(c.nome), `<div class="list"><button type="button" class="opt" data-o="ret">Retirar / gastar valor</button><button type="button" class="opt" data-o="liv">Devolver tudo ao saldo livre</button><button type="button" class="opt danger" data-o="del">Excluir caixinha</button></div>`, null, { nosave: true });
+  const mo = modal(esc(c.nome), `<div class="list"><button type="button" class="opt" data-o="ret">Retirar / gastar valor</button><button type="button" class="opt" data-o="liv">Devolver tudo ao saldo livre</button>${c.fixa ? '' : '<button type="button" class="opt danger" data-o="del">Excluir caixinha</button>'}</div>`, null, { nosave: true });
   mo.o.addEventListener('click', e => {
     const o = e.target.dataset.o; if (!o) return;
     if (o === 'ret') {
@@ -481,12 +547,13 @@ function opcCx(id) {
 }
 
 function dist100() {
-  if (!S.caixinhas.length) return toast('Crie uma caixinha primeiro');
-  const tot = S.caixinhas.reduce((a, c) => a + c.pct, 0);
+  const lista = S.caixinhas.filter(c => !c.fixa);
+  if (!lista.length) return toast('Crie uma caixinha primeiro');
+  const tot = lista.reduce((a, c) => a + c.pct, 0);
   let acc = 0;
-  S.caixinhas.forEach((c, k) => {
-    if (k === S.caixinhas.length - 1) c.pct = 100 - acc;
-    else { c.pct = tot > 0 ? Math.round(c.pct * 100 / tot) : Math.floor(100 / S.caixinhas.length); acc += c.pct; }
+  lista.forEach((c, k) => {
+    if (k === lista.length - 1) c.pct = 100 - acc;
+    else { c.pct = tot > 0 ? Math.round(c.pct * 100 / tot) : Math.floor(100 / lista.length); acc += c.pct; }
   });
   save(); render(); toast('Caixinhas somam 100%');
 }
@@ -500,7 +567,7 @@ function dayModal(date) {
   if (w && date >= T) quota = S.metas.filter(m => m.prazo >= date).reduce((a, m) => a + metaInfo(m, T).perDay, 0);
   const label = w ? (ov === true && !pat ? 'Dia de trabalho extra' : 'Dia de trabalho') : (ov === false ? 'Folga extra' : 'Folga');
   const mo = modal(fmtLong(date), `
-    <div class="mini"><div>${w ? '🟢' : '⚪'} ${label}<small>${w && date >= T && S.metas.length ? 'Cota prevista das metas: ' + fmt(quota) : ''}</small></div>
+    <div class="mini"><div>${w ? '🟢' : '⚪'} ${label}<small>${(() => { if (!w || !S.metas.length) return ''; if (date <= T) { const k = dayStats(date); return k.goal ? 'Meta do dia: ' + fmt(k.got) + ' de ' + fmt(k.goal) : ''; } return 'Cota prevista das metas: ' + fmt(quota); })()}</small></div>
       <button type="button" class="ghost sm" data-a="toggleDay" data-id="${date}">${w ? 'Marcar folga' : 'Trabalhar neste dia'}</button></div>
     ${ov !== undefined ? `<div class="mini"><div class="mut">Este dia foi alterado manualmente</div><button type="button" class="ghost sm" data-a="resetDay" data-id="${date}">Voltar ao padrão</button></div>` : ''}
     ${dueMetas.map(m => `<div class="mini"><div>🎯 Prazo da meta: ${esc(m.nome)}<small>${fmt(m.valor)}</small></div></div>`).join('')}
@@ -557,6 +624,8 @@ function exportar() {
 const actions = {
   tab: id => { tab = id; render(); window.scrollTo(0, 0); },
   registrar,
+  dprev: () => { draft.date = addDays(draft.date, -1); render(); },
+  dnext: () => { draft.date = addDays(draft.date, 1); render(); },
   novaMeta: () => metaModal(),
   editMeta: id => metaModal(id),
   depMeta,
@@ -591,8 +660,10 @@ function onField(e) {
   const t = e.target, f = t.dataset && t.dataset.f;
   if (!f) return;
   draft[f] = t.type === 'checkbox' ? t.checked : t.value;
+  if (f === 'date') { if (draft.date) render(); return; }
   renderPreview();
 }
+document.addEventListener('focusin', e => { if (e.target.matches('.field input:not([type=date])')) setTimeout(() => { try { e.target.select(); } catch (_) {} }, 0); });
 document.addEventListener('input', onField);
 document.addEventListener('change', e => {
   onField(e);
