@@ -40,6 +40,7 @@ const diff = (a, b) => Math.round((toD(b) - toD(a)) / 864e5);
 const fmtDate = s => s.split('-').reverse().join('/');
 const fmtLong = s => toD(s).toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
 const fmtMes = m => toD(m + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+const fmtN = c => (c < 0 ? '-' : '') + (Math.abs(c) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const short = c => (c / 100).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 
 /* ---------- estado ---------- */
@@ -326,6 +327,136 @@ function entDesc(e) {
 function monthNav(title) {
   return `<header class="top"><h1>${title}</h1></header><div class="monthnav"><button data-a="mesPrev">‹</button><b>${fmtMes(mes)}</b><button data-a="mesNext">›</button></div>`;
 }
+/* ---------- projeção do mês ----------
+   Média diária = últimos 14 dias trabalhados com entrada registrada.
+   Dias restantes = dias de trabalho do calendário (padrão + folgas/extras) que ainda faltam no mês.
+   As metas são simuladas dia a dia com a mesma regra do app (cota = falta ÷ dias de trabalho até o prazo),
+   limitadas pelo que sobra do lucro líquido de cada dia. */
+function mediasDiarias() {
+  const T = today(), por = {};
+  S.entries.filter(e => e.type === 'dia' && e.date <= T).forEach(e => {
+    const o = por[e.date] || (por[e.date] = { r: 0, c: 0, d: 0 });
+    o.r += e.receita; o.c += e.custoTotal; o.d += e.despesas;
+  });
+  const dias = Object.keys(por).sort().slice(-14), n = dias.length;
+  const avg = k => n ? Math.round(dias.reduce((a, d) => a + por[d][k], 0) / n) : 0;
+  return { n, r: avg('r'), c: avg('c'), d: avg('d') };
+}
+
+function projecao(mesStr) {
+  const T = today(), [y, mo] = mesStr.split('-').map(Number);
+  const first = `${mesStr}-01`, last = ds(new Date(y, mo, 0));
+  const med = mediasDiarias(), dd = diaDates();
+
+  // realizado no mês
+  const real = { r: 0, c: 0, d: 0, m: {}, cx: {}, emp: 0, livre: 0, dias: 0 };
+  const diasSet = new Set();
+  S.entries.filter(e => e.type === 'dia' && e.date >= first && e.date <= last).forEach(e => {
+    real.r += e.receita; real.c += e.custoTotal; real.d += e.despesas; real.livre += e.aloc.l || 0; diasSet.add(e.date);
+    Object.entries(e.aloc.m || {}).forEach(([k, v]) => real.m[k] = (real.m[k] || 0) + v);
+    Object.entries(e.aloc.c || {}).forEach(([k, v]) => { if (k === EMPRESA) real.emp += v; else real.cx[k] = (real.cx[k] || 0) + v; });
+  });
+  real.dias = diasSet.size;
+
+  // simulação dos dias restantes
+  const simStart = dd.has(T) ? addDays(T, 1) : T;
+  let restam = 0;
+  for (let d = simStart; d <= last; d = addDays(d, 1)) if (isWork(d, dd)) restam++;
+  const simula = restam > 0 && med.n > 0;
+  const rem = {}, dep = {}, fim = {}, falta = {};
+  S.metas.forEach(m => { rem[m.id] = Math.max(0, m.valor - sumM(m.id)); dep[m.id] = 0; falta[m.id] = rem[m.id]; });
+  const sim = { r: 0, c: 0, d: 0, cx: {}, livre: 0, dias: 0 };
+  S.caixinhas.forEach(c => { if (!c.fixa) sim.cx[c.id] = 0; });
+  if (simula) {
+    const maxP = S.metas.filter(m => rem[m.id] > 0).reduce((a, m) => m.prazo > a ? m.prazo : a, last);
+    const lim = addDays(T, 800), hor = maxP > lim ? lim : maxP;
+    const dias = [], work = [];
+    for (let d = simStart; d <= hor; d = addDays(d, 1)) { dias.push(d); work.push(isWork(d, dd)); }
+    const pre = [0]; work.forEach(w => pre.push(pre[pre.length - 1] + (w ? 1 : 0)));
+    const disp = Math.max(0, med.r - med.c - med.d);
+    dias.forEach((dt, i) => {
+      if (!work[i]) return;
+      const inMes = dt >= first && dt <= last;
+      let av = disp;
+      S.metas.forEach(m => {
+        if (rem[m.id] <= 0) return;
+        const pi = Math.min(dias.length - 1, diff(simStart, m.prazo));
+        const wd = pi >= i ? pre[pi + 1] - pre[i] : 0;
+        const need = (m.prazo < dt || wd === 0) ? rem[m.id] : Math.ceil(rem[m.id] / wd);
+        const give = Math.min(need, av, rem[m.id]);
+        rem[m.id] -= give; av -= give;
+        if (inMes) dep[m.id] += give;
+        if (rem[m.id] <= 0 && !fim[m.id]) fim[m.id] = dt;
+        if (dt <= m.prazo) falta[m.id] = rem[m.id];
+      });
+      if (inMes) {
+        sim.dias++; sim.r += med.r; sim.c += med.c; sim.d += med.d;
+        let used = 0;
+        S.caixinhas.filter(c => !c.fixa).forEach(c => { const v = Math.floor(av * c.pct / 100); sim.cx[c.id] += v; used += v; });
+        sim.livre += av - used;
+      }
+    });
+  }
+  const noMes = first <= T && T <= last;
+  return { med, real, sim, dep, fim, falta, first, last, fut: restam,
+    livreMes: real.livre + sim.livre, livreTotal: noMes ? balances().livre + sim.livre : null };
+}
+
+function vProj() {
+  const P = projecao(mes), { med, real, sim } = P;
+  const cols = P.fut > 0;
+  if (cols && med.n === 0) return `<section><h3>Projeção do mês</h3><div class="empty" style="margin-top:8px">Registre algumas entradas diárias para ver a previsão de faturamento, lucro e saldo do mês.</div></section>`;
+  if (!cols && real.dias === 0) return '';
+  const metas = S.metas, cxs = S.caixinhas.filter(c => !c.fixa);
+  const sumR = o => metas.reduce((a, m) => a + (o[m.id] || 0), 0);
+  const tot = { r: real.r + sim.r, c: real.c + sim.c, d: real.d + sim.d };
+  const mReal = sumR(real.m), mProj = mReal + sumR(P.dep);
+  const xReal = cxs.reduce((a, c) => a + (real.cx[c.id] || 0), 0), xProj = xReal + cxs.reduce((a, c) => a + (sim.cx[c.id] || 0), 0);
+  const empProj = real.emp + (cols ? sim.c : 0);
+  const lucB = [real.r - real.c, tot.r - tot.c], lucL = [lucB[0] - real.d, lucB[1] - tot.d];
+  const row = (lbl, a, b, cls = '', st = '') => `<tr class="${cls}" ${st ? `style="${st}"` : ''}><td>${lbl}</td><td>${fmtN(a)}</td>${cols ? `<td>${fmtN(b)}</td>` : ''}</tr>`;
+  const T = cols ? 'Projeção do mês' : 'Fechamento do mês';
+  const colorBar = [['#4E2E20', 'Custo da mercadoria', tot.c], ['#C93A2B', 'Despesas', tot.d], ['#F04A00', 'Metas', mProj], ['#C98A12', 'Caixinhas', xProj], ['#2E8B57', 'Saldo livre', P.livreMes]];
+  const fat = tot.r;
+  const bar = fat > 0 ? `<div class="distbar tall">${colorBar.map(([c, , v]) => v > 0 ? `<i style="width:${(v / fat * 100).toFixed(2)}%;background:${c}"></i>` : '').join('')}</div>
+    <div class="legend">${colorBar.map(([c, n, v]) => `<span><i class="dot" style="background:${c}"></i>${n} <b>${fat > 0 ? Math.round(v / fat * 100) : 0}%</b></span>`).join('')}</div>` : '';
+  const metaRows = metas.map((m, k) => row(`<i class="dot" style="background:${prio(k).c}"></i>${esc(m.nome)}`, real.m[m.id] || 0, (real.m[m.id] || 0) + (P.dep[m.id] || 0), 'subr')).join('');
+  const cxRows = cxs.map(c => row(`<i class="dot" style="background:${c.cor}"></i>${esc(c.nome)} · ${c.pct}%`, real.cx[c.id] || 0, (real.cx[c.id] || 0) + (sim.cx[c.id] || 0), 'subr')).join('');
+  const outlook = cols && metas.length ? `<details class="acc" open><summary>Metas: previsão até o prazo</summary><div class="plist">${metas.map((m, k) => {
+    const i = metaInfo(m, today());
+    let st;
+    if (i.status === 'done') st = '<b class="pos">Concluída</b>';
+    else if (P.fim[m.id]) st = `<b class="pos">Conclui em ${fmtDate(P.fim[m.id]).slice(0, 5)}</b>`;
+    else st = `<b class="neg">Faltam ${fmt(P.falta[m.id])}</b>`;
+    return `<div class="prow" style="${pstyle(k)}"><i class="pd">P${k + 1}</i><span class="pn">${esc(m.nome)}<small>prazo ${fmtDate(m.prazo).slice(0, 5)} · no mês ${fmt(P.dep[m.id] || 0)}</small></span>${st}</div>`;
+  }).join('')}</div><div class="mut note">Considera guardar a cota diária com o lucro líquido médio de cada dia, seguindo a ordem de prioridade.</div></details>` : '';
+  return `<section class="proj">
+    <h3>${T}</h3>
+    <div class="card hero">
+      <div class="hl">${cols ? 'Saldo livre previsto no fim do mês' : 'Saldo livre gerado no mês'}</div>
+      <div class="hv ${P.livreMes < 0 ? 'neg' : ''}">${fmt(P.livreMes)}</div>
+      ${P.livreTotal !== null ? `<div class="hs">Saldo livre total no fim do mês: <b>${fmt(P.livreTotal)}</b></div>` : ''}
+      <div class="hgrid"><div><small>Faturamento</small><b>${fmt(tot.r)}</b></div><div><small>Lucro bruto</small><b>${fmt(lucB[1])}</b></div><div><small>Lucro líquido</small><b>${fmt(lucL[1])}</b></div></div>
+      ${cols ? `<small class="hbase">Base: média de ${med.n} dia${med.n > 1 ? 's' : ''} trabalhado${med.n > 1 ? 's' : ''} (faturamento ${fmt(med.r)}/dia · custo ${fmt(med.c)}/dia · despesas ${fmt(med.d)}/dia) × ${sim.dias} dia${sim.dias === 1 ? '' : 's'} de trabalho restante${sim.dias === 1 ? '' : 's'}.${med.n < 3 ? ' Poucos dias registrados: a previsão melhora com mais lançamentos.' : ''}</small>` : ''}
+    </div>
+    ${bar}
+    <details class="acc" open><summary>Detalhamento (R$)</summary>
+      <table class="ptab"><thead><tr><th></th><th>Realizado</th>${cols ? '<th>Projeção</th>' : ''}</tr></thead><tbody>
+        ${row('Faturamento', real.r, tot.r, 'top')}
+        ${row('(−) Custo da mercadoria<small>vai para a Caixa da Empresa</small>', real.c, tot.c)}
+        ${row('(=) Lucro bruto', lucB[0], lucB[1], 'tot')}
+        ${row('(−) Despesas', real.d, tot.d)}
+        ${row('(=) Lucro líquido', lucL[0], lucL[1], 'tot')}
+        ${row('(−) Metas guardadas', mReal, mProj)}${metaRows}
+        ${row('(−) Caixinhas', xReal, xProj)}${cxRows}
+        ${row('(=) Saldo livre do mês', real.livre, P.livreMes, 'tot fin')}
+      </tbody></table>
+      <div class="mut note">Caixa da Empresa no mês: ${fmt(real.emp)}${cols ? ` → ${fmt(empProj)} projetado` : ''}.${lucL[1] < 0 ? ' Lucro líquido negativo: nada sobra para metas e caixinhas.' : ''}</div>
+    </details>
+    ${outlook}
+  </section>`;
+}
+
 function vMensal() {
   const es = monthEntries(), dias = es.filter(e => e.type === 'dia');
   const sum = f => dias.reduce((a, e) => a + f(e), 0);
@@ -335,7 +466,8 @@ function vMensal() {
   const toEmp = sum(e => (e.aloc.c || {})[EMPRESA] || 0);
   const nd = new Set(dias.map(e => e.date)).size;
   return `${monthNav('Mensal')}
-  <div class="grid">
+  ${vProj()}
+  <section><h3>Realizado no mês</h3><div class="grid" style="margin-top:8px">
     <div class="k"><span>Faturamento</span><b>${fmt(rec)}</b></div>
     <div class="k"><span>Custo da mercadoria</span><b>${fmt(custo)}</b></div>
     <div class="k"><span>Despesas</span><b>${fmt(desp)}</b></div>
@@ -346,7 +478,7 @@ function vMensal() {
     <div class="k"><span>Dias trabalhados</span><b>${nd}</b></div>
     <div class="k"><span>Média de lucro/dia</span><b>${fmt(nd ? Math.round((lucro - desp) / nd) : 0)}</b></div>
     <div class="k"><span>Lançamentos</span><b>${dias.length}</b></div>
-  </div>
+  </div></section>
   <section><h3>Lançamentos</h3>
   ${es.map(e => { const d = entDesc(e); return `<div class="mini"><div>${fmtDate(e.date)} · ${d.t}<small>${d.s}</small></div><button class="ghost sm danger" data-a="delEntry" data-id="${e.id}">Excluir</button></div>`; }).join('') || '<div class="empty">Sem lançamentos neste mês.</div>'}
   </section>
