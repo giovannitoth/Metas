@@ -14,7 +14,16 @@ const PRIO = [
   { c: '#7B4FB0', bg: '#ECE3F7', bd: '#D0BBE8' }
 ];
 const prio = k => PRIO[k % PRIO.length];
-const pstyle = k => { const p = prio(k); return `--pc:${p.c};--pbg:${p.bg};--pbd:${p.bd}`; };
+const pstyle = k => `--pc:${prio(k).c}`;
+/* tema claro/escuro */
+const THEME_KEY = 'metas-theme';
+const curTheme = () => document.documentElement.getAttribute('data-theme') || 'light';
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+  const m = document.querySelector('meta[name=theme-color]');
+  if (m) m.setAttribute('content', t === 'dark' ? '#000000' : '#F04A00');
+}
 const EMPRESA = 'caixa-empresa'; // caixinha automática: recebe o custo da mercadoria
 const SUGESTOES = ['Lazer', 'Investimentos', 'Transporte', 'Saúde', 'Reserva de Emergência'];
 
@@ -198,6 +207,8 @@ function modal(title, body, onSubmit, opts = {}) {
 const closeModals = () => document.querySelectorAll('.ov').forEach(o => o.remove());
 
 const ICON = {
+  moon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  sun: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   trend: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>',
   inicio: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>',
   metas: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></svg>',
@@ -220,7 +231,8 @@ function dateLabel(d) {
 function vInicio() {
   const b = balances();
   return `
-  <header class="top"><h1>Metas Financeiras</h1><div class="sub">${fmtLong(today())}</div></header>
+  <header class="top row"><div><h1>Metas Financeiras</h1><div class="sub">${fmtLong(today())}</div></div>
+    <button class="themebtn" data-a="tema" aria-label="Alternar modo escuro">${curTheme() === 'dark' ? ICON.sun : ICON.moon}</button></header>
   <div class="stats">
     <div class="t1"><span>Saldo livre</span><b>${fmt(b.livre)}</b></div>
     <div class="t2"><span>Em metas</span><b>${fmt(b.metas)}</b></div>
@@ -533,7 +545,7 @@ function vCal() {
   return `${monthNav('Calendário')}
   <div class="grid" style="margin-bottom:14px"><div class="k"><span>Dias de trabalho no mês</span><b>${nw}</b></div><div class="k"><span>Cota diária das metas</span><b>${fmt(quotaTotal())}</b></div></div>
   <div class="mut" style="font-size:14px">Dias de trabalho padrão</div>
-  <div class="chips" style="margin:8px 0 14px">${NOMES_DIA.map((nm, k) => `<button class="chip wd ${S.cfg.semana.includes(k) ? 'on' : ''}" data-a="semana" data-id="${k}">${nm}</button>`).join('')}</div>
+  <div class="chips week" style="margin:8px 0 14px">${NOMES_DIA.map((nm, k) => `<button class="chip wd ${S.cfg.semana.includes(k) ? 'on' : ''}" data-a="semana" data-id="${k}">${nm}</button>`).join('')}</div>
   <div class="actions" style="margin:0 0 12px"><button class="${calEdit ? 'pri sm' : 'ghost'}" data-a="calEdit">${calEdit ? '✓ Editando dias' : 'Escolher dias'}</button><button class="ghost" data-a="resetMes">Restaurar padrão do mês</button></div>
   ${calEdit ? '<div class="gold" style="margin-bottom:10px;font-size:14px">Toque nos dias para alternar entre trabalho e folga. As metas são recalculadas a cada toque.</div>' : ''}
   <div class="cal">${h}</div>
@@ -756,6 +768,7 @@ function exportar() {
 const actions = {
   tab: id => { tab = id; render(); window.scrollTo(0, 0); },
   registrar,
+  tema: () => { setTheme(curTheme() === 'dark' ? 'light' : 'dark'); render(); },
   dprev: () => { draft.date = addDays(draft.date, -1); render(); },
   dnext: () => { draft.date = addDays(draft.date, 1); render(); },
   novaMeta: () => metaModal(),

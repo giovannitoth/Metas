@@ -12,6 +12,12 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script>
+(function(){var t;try{t=localStorage.getItem('metas-theme')}catch(e){}
+if(!t)t=(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';
+document.documentElement.setAttribute('data-theme',t);
+var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',t==='dark'?'#000000':'#F04A00');})();
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>

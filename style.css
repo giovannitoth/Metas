@@ -225,3 +225,121 @@ button:active{transform:scale(.97)}
 .grid{grid-template-columns:repeat(2,minmax(0,1fr))}
 .stats{grid-template-columns:repeat(3,minmax(0,1fr))}
 .stats.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+
+/* ===== fundos das metas calculados a partir da cor de prioridade (--pc) ===== */
+.prow,.mcard{--pbg:color-mix(in srgb,var(--pc) 13%,#FFFBF5);--pbd:color-mix(in srgb,var(--pc) 34%,#FFFBF5)}
+.themebtn{width:38px;height:38px;border-radius:50%;background:var(--soft);color:var(--br);display:flex;align-items:center;justify-content:center;flex:none;padding:0}
+
+/* ===================== MODO ESCURO ===================== */
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --bg:#000;--surface:#0D0D14;--line:#25253A;--tx:#F3F1FA;--mut:#9C9AB8;--br:#ECE9FA;
+  --soft:#1A1A28;--or2:rgba(255,106,43,.2);--gold:#F5B942;--ok:#3DDC97;--bad:#FF6B7A;--sh:none;
+}
+[data-theme=dark] body,[data-theme=dark] html{background:#000}
+[data-theme=dark] h1,[data-theme=dark] h2,[data-theme=dark] h3{color:#fff}
+[data-theme=dark] .themebtn{background:rgba(255,255,255,.1);color:#FFD27A}
+
+/* blocos de saldo */
+[data-theme=dark] .stats div{color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+[data-theme=dark] .stats span{color:rgba(255,255,255,.78)}
+[data-theme=dark] .t1{background:linear-gradient(135deg,#0A7A62 0%,#16B58F 100%)}
+[data-theme=dark] .t2{background:linear-gradient(135deg,#D9480F 0%,#E8318A 100%)}
+[data-theme=dark] .t3{background:linear-gradient(135deg,#5B3FD6 0%,#2F7BF0 100%)}
+
+/* cartão principal (entrada do dia) */
+[data-theme=dark] .card{background:linear-gradient(150deg,#2A1650 0%,#1A2150 52%,#0E3A55 100%);border:1px solid rgba(255,255,255,.1);box-shadow:0 8px 30px rgba(80,40,200,.16)}
+[data-theme=dark] .card label,[data-theme=dark] .card .two span{color:rgba(255,255,255,.7)}
+[data-theme=dark] .field{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16)}
+[data-theme=dark] .field:focus-within{border-color:#FF8A3D;box-shadow:0 0 0 3px rgba(255,138,61,.22)}
+[data-theme=dark] .field svg{color:#FFA24D}
+[data-theme=dark] .field span{color:rgba(255,255,255,.65)}
+[data-theme=dark] .field input{color:#fff}
+[data-theme=dark] .field input::placeholder{color:rgba(255,255,255,.35)}
+[data-theme=dark] .datepick{background:rgba(255,255,255,.12)}
+[data-theme=dark] .datepick button,[data-theme=dark] .datepick .dl{color:#fff}
+[data-theme=dark] .two{border-top-color:rgba(255,255,255,.18)}
+[data-theme=dark] .profit{background:linear-gradient(120deg,#FF7A2F 0%,#E8318A 55%,#8B3FE0 100%);box-shadow:0 6px 20px rgba(232,49,138,.28)}
+[data-theme=dark] .profit b.neg{color:#FFE0E0}
+[data-theme=dark] details.acc>summary{color:#fff}
+[data-theme=dark] .chk{color:var(--tx)}
+[data-theme=dark] .brk .r{border-bottom-color:rgba(255,255,255,.08)}
+[data-theme=dark] .brk .r.b{background:rgba(255,255,255,.09)}
+[data-theme=dark] .brk .r small,[data-theme=dark] small{color:var(--mut)}
+
+/* metas: gradiente a partir da cor da prioridade */
+[data-theme=dark] .prow,[data-theme=dark] .mcard{
+  background:linear-gradient(135deg,color-mix(in srgb,var(--pc) 46%,#0A0A12) 0%,color-mix(in srgb,var(--pc) 14%,#0A0A12) 100%);
+  border:1px solid color-mix(in srgb,var(--pc) 45%,transparent);border-left:4px solid var(--pc)}
+[data-theme=dark] .mcard{border-left-width:5px;box-shadow:0 6px 22px color-mix(in srgb,var(--pc) 22%,transparent)}
+[data-theme=dark] .prow .pn,[data-theme=dark] .mcard .mn{color:#fff}
+[data-theme=dark] .prow b,[data-theme=dark] .mrow b{color:#fff}
+[data-theme=dark] .prow small,[data-theme=dark] .mdate,[data-theme=dark] .mrow,[data-theme=dark] .mgrid small{color:rgba(255,255,255,.72)}
+[data-theme=dark] .mgrid div{background:rgba(0,0,0,.28)}
+[data-theme=dark] .mgrid b{color:#fff}
+[data-theme=dark] .bar{background:rgba(0,0,0,.35)}
+[data-theme=dark] .mcard .ib{background:rgba(255,255,255,.16);color:#fff}
+[data-theme=dark] .mcard .ghost{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.25);color:#fff}
+[data-theme=dark] .badge{background:rgba(0,0,0,.35);color:#fff}
+[data-theme=dark] .badge.late{background:rgba(255,107,122,.28);color:#FFC2C8}
+[data-theme=dark] .badge.ok{background:rgba(61,220,151,.25);color:#B9F5DA}
+[data-theme=dark] .badge.ahead{background:rgba(90,150,255,.28);color:#CBE0FF}
+[data-theme=dark] .prow b.pos,[data-theme=dark] .prow b.neg{color:#fff}
+
+/* caixinhas e quadros */
+[data-theme=dark] .crow{background:linear-gradient(120deg,#17224A 0%,#26175A 100%);border-color:rgba(255,255,255,.1)}
+[data-theme=dark] .cn b,[data-theme=dark] .cv{color:#fff}
+[data-theme=dark] .distbar{background:rgba(255,255,255,.1)}
+[data-theme=dark] .grid .k{background:linear-gradient(145deg,#1E1A4E 0%,#0F2B4A 100%);border-color:rgba(255,255,255,.1)}
+[data-theme=dark] .grid .k b{color:#fff}
+[data-theme=dark] .grid .k span{color:rgba(255,255,255,.7)}
+[data-theme=dark] .ib{background:rgba(255,255,255,.1);color:#fff}
+[data-theme=dark] .ghost{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.18);color:var(--tx)}
+[data-theme=dark] .danger{color:#FF8A96;border-color:rgba(255,107,122,.4)}
+[data-theme=dark] .chip{background:linear-gradient(135deg,#1D1B4B,#16304F);border-color:rgba(255,255,255,.14);color:#fff}
+[data-theme=dark] .chip.on{background:linear-gradient(135deg,#FF7A2F,#E8318A);border-color:transparent}
+[data-theme=dark] .empty{border-color:rgba(255,255,255,.18)}
+[data-theme=dark] .link{color:#FFA24D}
+[data-theme=dark] .mini,[data-theme=dark] .monthnav button{border-color:var(--line)}
+[data-theme=dark] .monthnav button{background:rgba(255,255,255,.1);color:#fff}
+
+/* projeção */
+[data-theme=dark] .card.hero{background:linear-gradient(135deg,#6D2BE0 0%,#D6277F 55%,#F2711C 100%);border-color:rgba(255,255,255,.2);box-shadow:0 10px 32px rgba(214,39,127,.3)}
+[data-theme=dark] .hl,[data-theme=dark] .hs,[data-theme=dark] .hbase,[data-theme=dark] .hgrid small{color:rgba(255,255,255,.82)}
+[data-theme=dark] .hv{color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.25)}
+[data-theme=dark] .hv.neg{color:#FFD9DC}
+[data-theme=dark] .hgrid div{background:rgba(0,0,0,.25)}
+[data-theme=dark] .hgrid b,[data-theme=dark] .hs b{color:#fff}
+[data-theme=dark] .legend{color:var(--mut)}
+[data-theme=dark] .legend b{color:#fff}
+[data-theme=dark] .ptab td{border-bottom-color:rgba(255,255,255,.08)}
+[data-theme=dark] .ptab tr.tot td{background:rgba(255,255,255,.08)}
+[data-theme=dark] .ptab tr.fin td{background:rgba(61,220,151,.18);color:#6FF0B8}
+[data-theme=dark] .ptab td:nth-child(2){color:var(--mut)}
+[data-theme=dark] .ptab tr.tot td:nth-child(2){color:var(--tx)}
+
+/* calendário */
+[data-theme=dark] .cal button{background:linear-gradient(145deg,#15151F,#101018);border-color:var(--line);color:var(--tx)}
+[data-theme=dark] .cal button.today{border-color:#FF8A3D}
+[data-theme=dark] .cal button.wk{background:linear-gradient(145deg,#2C2C3D,#1E1E2C)}
+[data-theme=dark] .cal button.wk.ok{background:linear-gradient(145deg,#16A37A,#0B6A52);color:#fff}
+[data-theme=dark] .cal button.wk.miss{background:linear-gradient(145deg,#D1304A,#7A1830);color:#fff}
+[data-theme=dark] .cal button.wk.ok small,[data-theme=dark] .cal button.wk.miss small{color:rgba(255,255,255,.9)}
+[data-theme=dark] .cal button.wk small{color:#7BE9B8}
+[data-theme=dark] .cal button.off{background:repeating-linear-gradient(45deg,transparent 0 6px,#161622 6px 12px);opacity:.5}
+[data-theme=dark] .cal button.extra{border-color:#F5B942}
+
+/* navegação, janelas e avisos */
+[data-theme=dark] #nav{background:rgba(16,16,26,.82);border-color:rgba(255,255,255,.1);box-shadow:0 8px 28px rgba(0,0,0,.6)}
+[data-theme=dark] #nav button.on{background:linear-gradient(135deg,rgba(255,122,47,.32),rgba(232,49,138,.28));color:#FFB27A}
+[data-theme=dark] .ov{background:rgba(0,0,0,.65)}
+[data-theme=dark] .sheet{background:linear-gradient(180deg,#14142A 0%,#0A0A12 100%);border-top:1px solid rgba(255,255,255,.12)}
+[data-theme=dark] .sheet input:not([type=checkbox]),[data-theme=dark] .sheet textarea{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16);color:#fff}
+[data-theme=dark] .grab{background:rgba(255,255,255,.25)}
+[data-theme=dark] .list button.opt{color:var(--tx);border-bottom-color:var(--line)}
+[data-theme=dark] #toast{background:#2A2A44;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+
+/* ajustes finos */
+#toast{width:max-content;white-space:nowrap}
+.chips.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+.chips.week .chip{padding:7px 0;font-size:13px;text-align:center}
