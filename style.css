@@ -213,3 +213,15 @@ button:active{transform:scale(.97)}
 .ptab tr.subr td:nth-child(2){color:var(--mut)}
 .prow b.pos,.prow b.neg{font-size:13px;color:var(--ok)}
 .prow b.neg{color:var(--bad)}
+
+/* correção: campos lado a lado não podem estourar o cartão */
+.two-in{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.two-in>div{min-width:0}
+.field{min-width:0;width:100%}
+.field input{width:100%;min-width:0}
+.card{overflow:hidden;max-width:100%}
+.two{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.hgrid,.mgrid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.stats{grid-template-columns:repeat(3,minmax(0,1fr))}
+.stats.two{grid-template-columns:repeat(2,minmax(0,1fr))}
