@@ -481,3 +481,4 @@ button:active{transform:scale(.97)}
 [data-theme=dark] .sheet select{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16);color:#fff}
 .sheet #cadaBox label{margin-top:10px}
 .sheet #freqNota{margin-top:8px}
+.totmini{font-size:11px;color:var(--mut);margin-top:2px;letter-spacing:.02em;font-variant-numeric:tabular-nums}

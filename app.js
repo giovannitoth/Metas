@@ -314,7 +314,7 @@ function dateLabel(d) {
 function vInicio() {
   const b = balances();
   return `
-  <header class="top row"><div><h1>Metas Financeiras</h1><div class="sub">${fmtLong(today())}</div></div>
+  <header class="top row"><div><h1>Metas Financeiras</h1><div class="sub">${fmtLong(today())}</div><div class="totmini">Total ${fmt(b.livre + b.metas + b.cx)}</div></div>
     <button class="themebtn" data-a="tema" aria-label="Alternar modo escuro">${curTheme() === 'dark' ? ICON.sun : ICON.moon}</button></header>
   <div class="stats">
     <div class="t1"><span>Saldo livre</span><b>${fmt(b.livre)}</b></div>
@@ -384,6 +384,7 @@ function vCaixinhas() {
         ${c.fixa ? '' : `<button class="ib" data-a="editCx" data-id="${c.id}" aria-label="Editar">✎</button>`}<button class="ib" data-a="opcCx" data-id="${c.id}" aria-label="Opções">⋯</button></div>`;
     }).join('') || '<div class="empty">Nenhuma caixinha ainda.</div>'}</div>
     <div class="row mini2"><span>Saldo livre</span><b class="${b.livre < 0 ? 'neg' : ''}">${fmt(b.livre)}</b></div>
+    <div class="actions" style="margin:2px 0 4px">${b.livre > 0 && S.caixinhas.some(c => !c.fixa && c.pct > 0) ? '<button class="ghost sm" data-a="distLivre">Preencher com o saldo livre</button>' : ''}${S.caixinhas.length > 1 ? '<button class="ghost sm" data-a="transfCx">⇄ Transferir entre caixinhas</button>' : ''}</div>
     ${sug.length ? `<details class="acc" open><summary>Sugestões</summary><div class="chips">${sug.map(x => `<button class="chip" data-a="sugestao" data-id="${esc(x)}">+ ${esc(x)}</button>`).join('')}</div></details>` : ''}
   </section>`;
 }
@@ -1098,12 +1099,91 @@ function cxModal(id, nomeInicial) {
     });
 }
 
+const idsCx = () => S.caixinhas.map(c => c.id);
+
+/* saldo livre -> uma caixinha */
+function addCxModal(id) {
+  const c = S.caixinhas.find(x => x.id === id), livre = balances().livre;
+  if (!c) return;
+  if (livre <= 0) return toast('Você não tem saldo livre para usar');
+  const mo = modal(`Adicionar a "${esc(c.nome)}"`, `
+    <p class="mut" style="margin:0 0 4px">Saldo livre: <b>${fmt(livre)}</b> · nesta caixinha: ${fmt(sumC(id))}</p>
+    <label>Valor (R$)<input name="v" required inputmode="decimal" placeholder="0,00"></label>
+    <button type="button" class="link" data-tudo>Usar todo o saldo livre (${fmt(livre)})</button>`,
+    f => {
+      const v = parseMoney(f.v);
+      if (v <= 0) { toast('Informe um valor maior que zero'); return false; }
+      if (v > livre) { toast('Valor maior que o saldo livre'); return false; }
+      S.entries.push({ id: uid(), type: 'depCx', date: today(), desc: `Saldo livre → "${c.nome}": ${fmt(v)}`, aloc: { m: {}, c: { [id]: v }, l: -v } });
+      save(); render(); toast('Valor adicionado à caixinha ✓');
+    }, { ok: 'Adicionar' });
+  mo.o.querySelector('[data-tudo]').onclick = () => { mo.o.querySelector('[name=v]').value = inp(livre); };
+}
+
+/* caixinha -> outra caixinha */
+function transfCxModal(fromId) {
+  const lista = S.caixinhas;
+  if (lista.length < 2) return toast('Crie outra caixinha para transferir');
+  const de0 = lista.find(x => x.id === fromId) || lista.find(x => sumC(x.id) > 0) || lista[0];
+  const para0 = lista.find(x => x.id !== de0.id);
+  const opts = sel => lista.map(x => `<option value="${x.id}" ${x.id === sel ? 'selected' : ''}>${esc(x.nome)} — ${fmt(sumC(x.id))}</option>`).join('');
+  const mo = modal('Transferir entre caixinhas', `
+    <label>De<select name="de">${opts(de0.id)}</select></label>
+    <label>Para<select name="para">${opts(para0.id)}</select></label>
+    <label>Valor (R$)<input name="v" required inputmode="decimal" placeholder="0,00"></label>
+    <button type="button" class="link" data-tudo>Transferir tudo da caixinha de origem</button>`,
+    f => {
+      const v = parseMoney(f.v), a = S.caixinhas.find(x => x.id === f.de), b = S.caixinhas.find(x => x.id === f.para);
+      if (!a || !b || a.id === b.id) { toast('Escolha caixinhas diferentes'); return false; }
+      if (v <= 0) { toast('Informe um valor maior que zero'); return false; }
+      if (v > sumC(a.id)) { toast(`Saldo insuficiente em "${a.nome}"`); return false; }
+      S.entries.push({ id: uid(), type: 'transfCx', date: today(), desc: `Transferência de "${a.nome}" para "${b.nome}": ${fmt(v)}`, aloc: { m: {}, c: { [a.id]: -v, [b.id]: v }, l: 0 } });
+      save(); render(); toast('Transferência feita ✓');
+    }, { ok: 'Transferir' });
+  mo.o.querySelector('[data-tudo]').onclick = () => { mo.o.querySelector('[name=v]').value = inp(sumC(mo.o.querySelector('[name=de]').value)); };
+}
+
+/* saldo livre -> todas as caixinhas, proporcional às porcentagens */
+function partilhaCx(v) {
+  const lista = S.caixinhas.filter(c => !c.fixa && c.pct > 0), tot = lista.reduce((a, c) => a + c.pct, 0);
+  const out = {}; let usado = 0;
+  lista.forEach(c => { out[c.id] = Math.floor(v * c.pct / tot); usado += out[c.id]; });
+  if (lista.length) out[lista[0].id] += v - usado;                       // centavos que sobram vão para a primeira
+  return { lista, out };
+}
+function distLivreModal() {
+  const livre = balances().livre;
+  if (livre <= 0) return toast('Você não tem saldo livre para distribuir');
+  if (!partilhaCx(1).lista.length) return toast('Defina a porcentagem de alguma caixinha primeiro');
+  const mo = modal('Preencher caixinhas', `
+    <p class="mut" style="margin:0 0 4px">Saldo livre: <b>${fmt(livre)}</b></p>
+    <label>Quanto distribuir (R$)<input name="v" required inputmode="decimal" value="${inp(livre)}"></label>
+    <div class="brk" id="prevDist" style="margin-top:8px"></div>
+    <div class="mut note">O valor é dividido entre as caixinhas na proporção das porcentagens de cada uma.</div>`,
+    f => {
+      const v = parseMoney(f.v);
+      if (v <= 0) { toast('Informe um valor maior que zero'); return false; }
+      if (v > livre) { toast('Valor maior que o saldo livre'); return false; }
+      const { out } = partilhaCx(v);
+      S.entries.push({ id: uid(), type: 'depCx', date: today(), desc: `Saldo livre distribuído nas caixinhas: ${fmt(v)}`, aloc: { m: {}, c: out, l: -v } });
+      save(); render(); toast('Caixinhas preenchidas ✓');
+    }, { ok: 'Preencher' });
+  const inpV = mo.o.querySelector('[name=v]'), prev = mo.o.querySelector('#prevDist');
+  const mostra = () => {
+    const v = Math.min(Math.max(0, parseMoney(inpV.value)), 9e11), { lista, out } = partilhaCx(v);
+    prev.innerHTML = lista.map(c => `<div class="r"><span><i class="dot" style="background:${c.cor}"></i>${esc(c.nome)} · ${c.pct}%</span><span>${fmt(out[c.id] || 0)}</span></div>`).join('');
+  };
+  inpV.addEventListener('input', mostra); mostra();
+}
+
 function opcCx(id) {
   const c = S.caixinhas.find(x => x.id === id), bal = sumC(id);
-  const mo = modal(esc(c.nome), `<div class="list"><button type="button" class="opt" data-o="ret">Retirar / gastar valor</button><button type="button" class="opt" data-o="liv">Devolver tudo ao saldo livre</button>${c.fixa ? '' : '<button type="button" class="opt danger" data-o="del">Excluir caixinha</button>'}</div>`, null, { nosave: true });
+  const mo = modal(esc(c.nome), `<div class="list"><button type="button" class="opt" data-o="add">Adicionar do saldo livre</button><button type="button" class="opt" data-o="tr">Transferir para outra caixinha</button><button type="button" class="opt" data-o="ret">Retirar / gastar valor</button><button type="button" class="opt" data-o="liv">Devolver tudo ao saldo livre</button>${c.fixa ? '' : '<button type="button" class="opt danger" data-o="del">Excluir caixinha</button>'}</div>`, null, { nosave: true });
   mo.o.addEventListener('click', e => {
     const o = e.target.dataset.o; if (!o) return;
-    if (o === 'ret') {
+    if (o === 'add') { mo.close(); addCxModal(id); }
+    else if (o === 'tr') { mo.close(); transfCxModal(id); }
+    else if (o === 'ret') {
       mo.close();
       modal(`Retirar de "${esc(c.nome)}"`, `<p class="mut">Saldo: ${fmt(bal)}</p><label>Valor (R$)<input name="v" required inputmode="decimal" placeholder="0,00"></label><label>Motivo<input name="d" placeholder="Opcional"></label>`, f => {
         const v = parseMoney(f.v);
@@ -1227,6 +1307,8 @@ const actions = {
   novaCx: () => cxModal(),
   editCx: id => cxModal(id),
   opcCx,
+  transfCx: id => transfCxModal(id),
+  distLivre: () => distLivreModal(),
   sugestao: nome => cxModal(null, nome),
   dist100,
   delEntry: id => { if (confirm('Excluir este lançamento?')) { S.entries = S.entries.filter(e => e.id !== id); save(); render(); } },
