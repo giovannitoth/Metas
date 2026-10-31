@@ -83,7 +83,7 @@ let tab = 'inicio';
 let mes = today().slice(0, 7);
 function newDraft() {
   return {
-    date: today(), custo: S.cfg.usar ? inp(S.cfg.custo) : '', qtd: '', receita: '',
+    date: today(), custo: S.cfg.usar ? inp(S.cfg.custo) : '', qtd: '', receita: '', fisico: '',
     despesas: '', obs: '', adiantar: false, usar: !!S.cfg.usar
   };
 }
@@ -93,13 +93,14 @@ let draft = newDraft();
 const sumM = (id, pred = () => true) => S.entries.filter(pred).reduce((a, e) => a + ((e.aloc.m || {})[id] || 0), 0);
 const sumC = id => S.entries.reduce((a, e) => a + ((e.aloc.c || {})[id] || 0), 0);
 function balances() {
-  let metas = 0, cx = 0, livre = 0;
+  let metas = 0, cx = 0, livre = 0, fisico = 0;
   S.entries.forEach(e => {
+    fisico += e.fisico || 0;
     Object.values(e.aloc.m || {}).forEach(v => metas += v);
     Object.values(e.aloc.c || {}).forEach(v => cx += v);
     livre += e.aloc.l || 0;
   });
-  return { metas, cx, livre };
+  return { metas, cx, livre, fisico };
 }
 
 /* ---------- dias de trabalho ----------
@@ -321,6 +322,7 @@ function vInicio() {
     <div class="t2"><span>Em metas</span><b>${fmt(b.metas)}</b></div>
     <div class="t3"><span>Caixinhas</span><b>${fmt(b.cx)}</b></div>
   </div>
+  <div class="fisico"><button type="button" data-a="ajFisico">Dinheiro físico <b>${fmt(b.fisico)}</b> ✎</button></div>
   ${vEntrada()}
   ${vMetasHoje()}
   ${vCaixinhas()}
@@ -346,6 +348,8 @@ function vEntrada() {
     </div>
     <label>Dinheiro do dia (total recebido)</label>
     <div class="field lg">${ICON.cash}<span>R$</span><input inputmode="decimal" enterkeyhint="done" data-f="receita" placeholder="0,00" value="${esc(draft.receita)}"></div>
+    <label>Quanto disso é dinheiro físico? <small class="mut">(opcional)</small></label>
+    <div class="field">${ICON.cash}<span>R$</span><input inputmode="decimal" enterkeyhint="done" data-f="fisico" placeholder="0,00" value="${esc(draft.fisico)}"></div>
     ${recomendadoHtml(draft.date)}
     <div id="calc1"></div>
     <details class="acc"><summary>Detalhes do lucro</summary><div id="det" class="brk"></div></details>
@@ -933,10 +937,12 @@ function renderPreview() {
 function registrar() {
   const d = draftNums();
   if (d.receita <= 0) return toast('Informe o dinheiro do dia');
+  const fisico = parseMoney(draft.fisico);
+  if (fisico > d.receita) return toast('O dinheiro físico não pode ser maior que o total recebido');
   const r = compute(d);
   const eid = uid();
   S.entries.push({
-    id: eid, type: 'dia', date: d.date, custo: d.custo, qtd: d.qtd, receita: d.receita,
+    id: eid, type: 'dia', date: d.date, custo: d.custo, qtd: d.qtd, receita: d.receita, fisico,
     custoTotal: r.custoTotal, lucro: r.lucro, despesas: d.despesas, obs: draft.obs.trim(),
     aloc: { m: r.m, c: r.c, l: r.livre }
   });
@@ -1319,6 +1325,15 @@ const actions = {
   distLivre: () => distLivreModal(),
   sugestao: nome => cxModal(null, nome),
   dist100,
+  ajFisico: () => {
+    const cur = balances().fisico;
+    modal('Dinheiro físico', `<p class="mut" style="margin:0 0 4px">Quanto você tem em dinheiro físico agora? Hoje: <b>${fmt(cur)}</b></p>
+      <label>Valor atual (R$)<input name="v" required inputmode="decimal" value="${inp(cur)}"></label>`,
+      f => { const v = parseMoney(f.v), dif = v - cur;
+        if (v < 0) { toast('Valor inválido'); return false; }
+        if (dif !== 0) S.entries.push({ id: uid(), type: 'fisico', date: today(), desc: `Ajuste do dinheiro físico para ${fmt(v)}`, fisico: dif, aloc: { m: {}, c: {}, l: 0 } });
+        save(); render(); });
+  },
   delEntry: id => { if (confirm('Excluir este lançamento?')) { S.entries = S.entries.filter(e => e.id !== id); save(); render(); } },
   day: id => calEdit ? toggleDay(id) : dayModal(id),
   toggleDay, resetDay,

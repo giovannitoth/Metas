@@ -485,3 +485,6 @@ button:active{transform:scale(.97)}
 .reco{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:8px 0 2px;padding:8px 12px;border-radius:12px;background:rgba(255,160,60,.14);border:1px dashed rgba(255,160,60,.5)}
 .reco span{font-size:13px;font-weight:600}.reco small{display:block;font-weight:400;font-size:11px;color:var(--mut)}
 .reco b{font-size:17px;white-space:nowrap}
+.fisico{margin:-4px 0 8px;text-align:center}
+.fisico button{background:none;border:0;color:var(--mut);font:inherit;font-size:10.5px;letter-spacing:.03em;padding:2px 6px}
+.fisico b{color:var(--tx);font-weight:600}
