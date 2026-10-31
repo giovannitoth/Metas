@@ -458,3 +458,26 @@ button:active{transform:scale(.97)}
 .sheet input[type=date]::-webkit-datetime-edit{padding:0;min-width:0}
 .sheet input[type=date]::-webkit-calendar-picker-indicator{margin:0 0 0 4px;padding:0}
 .datepick input[type=date]{-webkit-appearance:none;appearance:none}
+
+/* extrato bancário */
+.grid.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.grid.g3 .k{padding:7px 9px}
+.grid.g3 .k b{font-size:13.5px;white-space:nowrap;display:block;overflow:hidden;text-overflow:ellipsis}
+.catrow{padding:6px 0;border-bottom:1px solid var(--line)}
+.catrow:last-of-type{border-bottom:0}
+.cl{display:flex;justify-content:space-between;gap:8px;font-size:14px}
+.cbar{height:6px;border-radius:99px;background:var(--soft);margin:5px 0 1px;overflow:hidden}
+.cbar i{display:block;height:100%;border-radius:99px}
+.cal button{min-height:56px;gap:0}
+.cal button small.ex{font-style:italic;font-weight:500;font-size:9px}
+.cal button small.ex.neg{color:var(--bad)}
+.sheet .grid.g3 .k{background:var(--surface)}
+.mini2 small{font-size:12px}
+
+/* seletor de repetição */
+.sheet select{width:100%;border:1.5px solid var(--line);border-radius:var(--r-sm);padding:11px 12px;background:#fff;font:inherit;font-size:16px;color:var(--tx);outline:none;margin:0;display:block}
+.sheet select:focus{border-color:var(--or)}
+:root:not([data-theme=dark]) .sheet select{border-color:#EBA3C2}
+[data-theme=dark] .sheet select{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.16);color:#fff}
+.sheet #cadaBox label{margin-top:10px}
+.sheet #freqNota{margin-top:8px}

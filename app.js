@@ -70,6 +70,7 @@ function migrate(s) {
   if (!Array.isArray(s.cfg.semana)) s.cfg.semana = [1, 2, 3, 4, 5, 6]; // padrão: seg a sáb
   s.work = s.work || {};
   s.recorrentes = s.recorrentes || [];
+  s.extrato = s.extrato || { itens: [], arquivos: [] };
   s.caixinhas = s.caixinhas || [];
   if (!s.caixinhas.some(c => c.fixa === 'empresa'))
     s.caixinhas.unshift({ id: 'caixa-empresa', nome: 'Caixa da Empresa', pct: 0, cor: '#4E2E20', fixa: 'empresa' });                                               // exceções: { 'AAAA-MM-DD': true|false }
@@ -158,6 +159,22 @@ function datesFor(t, mref) {
   const inicio = t.antes ? clampDia(pm.getFullYear(), pm.getMonth() + 1, t.diaInicio) : clampDia(y, m, t.diaInicio);
   return { inicio, prazo };
 }
+/* Tipos de série: 'mes' (padrão) = todo mês; 'dias' = a cada N dias a partir de uma âncora.
+   mref identifica cada ciclo: 'AAAA-MM' (mês do prazo) ou a data de início do ciclo (tipo 'dias'). */
+function datasSerie(t, mref) { return t.tipo === 'dias' ? { inicio: mref, prazo: addDays(mref, t.dur) } : datesFor(t, mref); }
+function periodosParaGerar(t, T) {
+  if (t.tipo === 'dias') { if (T < t.ancora) return []; return [addDays(t.ancora, Math.floor(diff(t.ancora, T) / t.cada) * t.cada)]; }
+  const cur = mesDe(T); return [cur, mesSeg(cur)];
+}
+function mrefAtual(t) {
+  const T = today();
+  if (t.tipo === 'dias') return T < t.ancora ? t.ancora : addDays(t.ancora, Math.floor(diff(t.ancora, T) / t.cada) * t.cada);
+  return mesDe(T);
+}
+const rotuloCurto = id => { const t = S.recorrentes.find(x => x.id === id); return t && t.tipo === 'dias' ? `A cada ${t.cada} dias` : 'Mensal'; };
+const descSerie = t => t.tipo === 'dias'
+  ? `a cada ${t.cada} dias · ${t.dur + 1} dia${t.dur ? 's' : ''} para guardar`
+  : `todo mês · início dia ${t.diaInicio}${t.antes ? ' (mês anterior)' : ''} → prazo dia ${t.diaPrazo}`;
 const mesDe = d => d.slice(0, 7);
 const mesSeg = mref => { const [y, m] = mref.split('-').map(Number); const d = new Date(y, m, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
 const isDone = x => sumM(x.id) >= x.valor;
@@ -166,10 +183,10 @@ function ensureRecorrentes() {
   const T = today(), cur = mesDe(T);
   let changed = false;
   S.recorrentes.forEach(t => {
-    [cur, mesSeg(cur)].forEach(mref => {
+    periodosParaGerar(t, T).forEach(mref => {
       if (mref < t.desde || (t.skip || []).includes(mref)) return;
       if (S.metas.some(x => x.serie === t.id && x.mref === mref)) return;
-      const dt = datesFor(t, mref);
+      const dt = datasSerie(t, mref);
       if (dt.inicio > T) return;                                  // ainda não chegou o início
       const nova = { id: uid(), nome: t.nome, valor: t.valor, inicio: dt.inicio, prazo: dt.prazo, serie: t.id, mref };
       const nAtivas = S.metas.filter(x => !isDone(x)).length;
@@ -197,8 +214,8 @@ function normalizeMetas() {
 }
 function applyTemplateToOpen(t, exceptId) {
   S.metas.forEach(x => {
-    if (x.serie !== t.id || x.id === exceptId || isDone(x) || x.mref < mesDe(today())) return;
-    const dt = datesFor(t, x.mref);
+    if (x.serie !== t.id || x.id === exceptId || isDone(x) || x.mref < mrefAtual(t)) return;
+    const dt = datasSerie(t, x.mref);
     x.nome = t.nome; x.valor = t.valor; x.inicio = dt.inicio; x.prazo = dt.prazo;
   });
 }
@@ -258,7 +275,7 @@ $('#toast').addEventListener('click', e => {
 function modal(title, body, onSubmit, opts = {}) {
   const o = document.createElement('div');
   o.className = 'ov';
-  o.innerHTML = `<form class="sheet"><div class="grab"></div><h3>${title}</h3>${body}<div class="btns">${opts.extra || ''}<button type="button" class="ghost" data-close>${opts.nosave ? 'Fechar' : 'Cancelar'}</button>${opts.nosave ? '' : '<button class="pri">Salvar</button>'}</div></form>`;
+  o.innerHTML = `<form class="sheet"><div class="grab"></div><h3>${title}</h3>${body}<div class="btns">${opts.extra || ''}<button type="button" class="ghost" data-close>${opts.nosave ? 'Fechar' : 'Cancelar'}</button>${opts.nosave ? '' : `<button class="pri">${opts.ok || 'Salvar'}</button>`}</div></form>`;
   document.body.appendChild(o);
   const close = () => o.remove();
   o.addEventListener('click', e => { if (e.target === o || e.target.hasAttribute('data-close')) close(); });
@@ -380,7 +397,7 @@ function metaCard({ m, i, k }) {
   const dias = i.futuro ? 'ainda não começou' : m.prazo < D ? 'vencida' : i.dl === 0 ? 'sem dias de trabalho' : i.dl + (i.dl > 1 ? ' dias' : ' dia');
   const done = i.status === 'done';
   return `<div class="mcard" style="${pstyle(k)}">
-      <div class="mh"><span class="pb">${done ? '✓' : 'P' + (k + 1)}</span><b class="mn">${esc(m.nome)}</b>${m.serie ? '<span class="badge rec">↻ Mensal</span>' : ''}${badge}<span class="mdate">${fmtDate(m.inicio).slice(0, 5)} → ${fmtDate(m.prazo).slice(0, 5)} · ${dias}</span></div>
+      <div class="mh"><span class="pb">${done ? '✓' : 'P' + (k + 1)}</span><b class="mn">${esc(m.nome)}</b>${m.serie ? `<span class="badge rec">↻ ${esc(rotuloCurto(m.serie))}</span>` : ''}${badge}<span class="mdate">${fmtDate(m.inicio).slice(0, 5)} → ${fmtDate(m.prazo).slice(0, 5)} · ${dias}</span></div>
       <div class="bar"><i style="width:${i.pct}%"></i></div>
       <div class="mrow"><span>${fmt(i.saved)} de ${fmt(m.valor)}</span><b>${i.pct}%</b></div>
       ${done ? '' : `<div class="mgrid"><div><small>Hoje</small><b>${fmt(i.hoje)}</b></div><div><small>Por dia</small><b>${fmt(i.perDay)}</b></div><div><small>Falta</small><b>${fmt(i.rem)}</b></div></div>`}
@@ -402,9 +419,9 @@ function vMetas() {
   <div class="stats two"><div class="t2"><span>Guardar hoje</span><b>${fmt(totHoje)}</b></div><div class="t1"><span>Saldo livre</span><b>${fmt(balances().livre)}</b></div></div>
   ${ativas.map(metaCard).join('') || '<div class="empty" style="margin-top:12px">' + (feitas.length ? 'Todas as metas estão concluídas 🎉' : 'Crie sua primeira meta: informe o valor total, o início e até quando precisa guardar. O app calcula quanto guardar por dia.') + '<br><button class="pri sm" style="margin-top:10px" data-a="novaMeta">+ Criar meta</button></div>'}
   ${S.recorrentes.length ? `<details class="acc" open><summary>Metas recorrentes (${S.recorrentes.length})</summary>
-    ${S.recorrentes.map(t => `<div class="mini"><div>↻ ${esc(t.nome)}<small>${fmt(t.valor)} · início dia ${t.diaInicio}${t.antes ? ' (mês anterior)' : ''} → prazo dia ${t.diaPrazo}</small></div>
+    ${S.recorrentes.map(t => `<div class="mini"><div>↻ ${esc(t.nome)}<small>${fmt(t.valor)} · ${descSerie(t)}</small></div>
       <div class="actions"><button class="ghost sm" data-a="editTmpl" data-id="${t.id}">Editar</button><button class="ghost sm danger" data-a="endTmpl" data-id="${t.id}">Encerrar</button></div></div>`).join('')}
-    <div class="mut note">A cada mês a meta é criada sozinha quando chega a data de início, mantendo a mesma prioridade.</div></details>` : ''}
+    <div class="mut note">A cada ciclo (mês ou intervalo de dias) a meta é criada sozinha quando chega a data de início, mantendo a mesma prioridade.</div></details>` : ''}
   ${feitas.length ? `<details class="acc"><summary>Concluídas (${feitas.length})</summary>${feitas.map(metaCard).join('')}</details>` : ''}`;
 }
 
@@ -546,6 +563,219 @@ function vProj() {
   </section>`;
 }
 
+/* ---------- extrato bancário ----------
+   Itens: { id, date:'AAAA-MM-DD', v:centavos (+ entrada / − saída), cat, d:descrição curta, arq }
+   Movimentações entre as suas próprias reservas (aplicação/resgate RDB) não contam como entrada nem saída,
+   a menos que você ative essa opção. Estornos abatem as saídas. */
+const CAT = {
+  pix_in: { n: 'Pix recebidos', k: 'ent' }, transf_in: { n: 'Transferências recebidas', k: 'ent' },
+  reembolso: { n: 'Reembolsos recebidos', k: 'ent' }, outras_in: { n: 'Outras entradas', k: 'ent' },
+  estorno: { n: 'Estornos', k: 'est' },
+  debito: { n: 'Compras no débito', k: 'sai' }, nupay: { n: 'Compras via NuPay', k: 'sai' }, pix_out: { n: 'Pix enviados', k: 'sai' },
+  transf_out: { n: 'Transferências enviadas', k: 'sai' }, tarifa: { n: 'Débitos em conta e tarifas', k: 'sai' }, outras_out: { n: 'Outras saídas', k: 'sai' },
+  rdb_apl: { n: 'Aplicações (RDB)', k: 'int' }, rdb_res: { n: 'Resgates (RDB)', k: 'int' }
+};
+const CAT_COR = { ent: '#2E8B57', sai: '#E0246F', est: '#C98A12', int: '#8E44AD' };
+const semAcento = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const kfmt = c => { const a = Math.abs(c) / 100; const t = a >= 1000 ? (a / 1000).toFixed(1).replace('.', ',') + 'k' : String(Math.round(a)); return (c < 0 ? '-' : '+') + t; };
+
+function classifica(desc, v) {
+  const t = semAcento(desc);
+  if (/aplicacao/.test(t) && /(rdb|cdb|investiment|reserva)/.test(t)) return 'rdb_apl';
+  if (/resgate/.test(t)) return 'rdb_res';
+  if (/estorno/.test(t)) return 'estorno';
+  if (/reembolso/.test(t)) return 'reembolso';
+  if (/nupay/.test(t)) return 'nupay';
+  if (/pix/.test(t)) return v > 0 ? 'pix_in' : 'pix_out';
+  if (/compra/.test(t)) return 'debito';
+  if (/(debito em conta|tarifa|iof|juros|anuidade)/.test(t)) return 'tarifa';
+  if (/transferencia recebida|deposito|ted recebid|doc recebid/.test(t)) return 'transf_in';
+  if (/transferencia enviada|ted enviad|doc enviad/.test(t)) return 'transf_out';
+  return v > 0 ? 'outras_in' : 'outras_out';
+}
+
+function agrega(itens) {
+  const r = { n: itens.length, ent: 0, sai: 0, est: 0, apl: 0, res: 0, cat: {}, qtd: {} };
+  itens.forEach(i => {
+    const c = CAT[i.cat] || CAT[i.v > 0 ? 'outras_in' : 'outras_out'];
+    r.cat[i.cat] = (r.cat[i.cat] || 0) + i.v; r.qtd[i.cat] = (r.qtd[i.cat] || 0) + 1;
+    if (c.k === 'ent') r.ent += i.v; else if (c.k === 'sai') r.sai += -i.v; else if (c.k === 'est') r.est += i.v;
+    else if (i.cat === 'rdb_apl') r.apl += -i.v; else r.res += i.v;
+  });
+  const rdb = !!S.cfg.rdb;
+  r.entT = r.ent + (rdb ? r.res : 0);
+  r.saiT = r.sai - r.est + (rdb ? r.apl : 0);
+  r.res_ = r.entT - r.saiT;
+  return r;
+}
+function extratoDias() {
+  const m = {};
+  S.extrato.itens.forEach(i => { (m[i.date] || (m[i.date] = [])).push(i); });
+  const out = {}; Object.keys(m).forEach(d => out[d] = agrega(m[d]));
+  return out;
+}
+
+function parseCSV(text) {
+  text = text.replace(/^﻿/, '');
+  const first = text.split(/\r?\n/, 1)[0] || '';
+  const delim = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ',';
+  const rows = []; let row = [], cur = '', q = false;
+  const fim = () => { row.push(cur); cur = ''; if (row.some(c => c.trim() !== '')) rows.push(row); row = []; };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; fim(); }
+    else cur += ch;
+  }
+  if (cur !== '' || row.length) fim();
+  return rows;
+}
+function parseDataExtrato(v) {
+  v = String(v || '').trim();
+  let m = v.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/), y, mo, d;
+  if (m) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+  else if ((m = v.match(/^(\d{4})-(\d{2})-(\d{2})/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+  else return null;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return `${y}-${pad(mo)}-${pad(d)}`;
+}
+function parseValorExtrato(v) {
+  v = String(v || '').trim().replace(/[R$\s ]/g, '');
+  if (!v) return NaN;
+  let neg = false;
+  if (/^\(.*\)$/.test(v)) { neg = true; v = v.slice(1, -1); }
+  if (v.endsWith('-')) { neg = true; v = v.slice(0, -1); }
+  if (v.includes(',')) v = v.replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(v);
+  return isFinite(n) ? Math.round((neg ? -Math.abs(n) : n) * 100) : NaN;
+}
+function parseExtrato(text) {
+  const rows = parseCSV(text);
+  if (rows.length < 2) return { itens: [], erro: 'O arquivo está vazio' };
+  const h = rows[0].map(semAcento);
+  const find = re => h.findIndex(x => re.test(x));
+  const iD = find(/^(data|date)/), iV = find(/^(valor|amount|quantia)/), iI = find(/(identificador|^id$|codigo|transaction)/), iT = find(/(descri|historico|lancamento|memo|detalhe|nome)/);
+  if (iD < 0 || iV < 0 || iT < 0) return { itens: [], erro: 'Não reconheci as colunas (preciso de Data, Valor e Descrição)' };
+  const itens = [], vistos = {}; let ignoradas = 0;
+  rows.slice(1).forEach(r => {
+    const date = parseDataExtrato(r[iD]), v = parseValorExtrato(r[iV]);
+    if (!date || isNaN(v) || v === 0) { ignoradas++; return; }
+    const bruta = String(r[iT] || '').trim();
+    const partes = bruta.split(' - ');
+    const d = partes.slice(0, 2).join(' · ').slice(0, 90);          // guarda só o tipo e o nome; documentos e contas ficam de fora
+    let id = iI >= 0 ? String(r[iI] || '').trim() : '';
+    if (!id) { const k = `${date}|${v}|${bruta}`; vistos[k] = (vistos[k] || 0) + 1; id = `h:${k}|${vistos[k]}`; }
+    itens.push({ id, date, v, cat: classifica(bruta, v), d });
+  });
+  itens.sort((a, b) => a.date.localeCompare(b.date));
+  return { itens, ignoradas };
+}
+
+async function importaExtrato(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    let txt = new TextDecoder('utf-8').decode(buf);
+    if (txt.includes('�')) txt = new TextDecoder('windows-1252').decode(buf);
+    const r = parseExtrato(txt);
+    if (!r.itens.length) return toast(r.erro || 'Nenhum lançamento encontrado no arquivo');
+    const tem = new Set(S.extrato.itens.map(i => i.id));
+    const novos = r.itens.filter(i => !tem.has(i.id)), dup = r.itens.length - novos.length;
+    if (!novos.length) return toast('Todos os lançamentos deste arquivo já foram importados');
+    const a = agrega(novos), de = novos[0].date, ate = novos[novos.length - 1].date;
+    modal('Extrato encontrado', `
+      <div class="mut" style="margin-bottom:8px">${esc(file.name)}<br>${fmtDate(de)} a ${fmtDate(ate)} · ${novos.length} lançamento${novos.length > 1 ? 's' : ''} novo${novos.length > 1 ? 's' : ''}${dup ? ` · ${dup} já importado${dup > 1 ? 's' : ''}` : ''}${r.ignoradas ? ` · ${r.ignoradas} linha(s) ignorada(s)` : ''}</div>
+      <div class="grid g3"><div class="k"><span>Entradas</span><b class="pos">${fmt(a.entT)}</b></div><div class="k"><span>Saídas</span><b class="neg">${fmt(a.saiT)}</b></div><div class="k"><span>Resultado</span><b class="${a.res_ < 0 ? 'neg' : 'pos'}">${fmt(a.res_)}</b></div></div>
+      ${a.apl || a.res ? `<div class="mut note">Aplicações ${fmt(a.apl)} e resgates ${fmt(a.res)} (RDB) são movimentações entre suas reservas e ${S.cfg.rdb ? 'estão' : 'não estão'} nos totais.</div>` : ''}
+      <div class="mut note">Os dados ficam só neste aparelho. Documentos e números de conta não são guardados.</div>`,
+      () => {
+        const aid = uid();
+        novos.forEach(i => { i.arq = aid; S.extrato.itens.push(i); });
+        S.extrato.arquivos.push({ id: aid, nome: file.name, em: today(), n: novos.length, de, ate });
+        mes = mesDe(ate); tab = 'mensal';
+        save(); render(); toast(`${novos.length} lançamentos importados ✓`);
+      }, { ok: 'Importar' });
+  } catch (e) { toast('Não consegui ler o arquivo'); }
+}
+
+function vExtrato() {
+  const ex = S.extrato;
+  const topo = `<div class="row"><h3>Extrato bancário</h3><button class="pri sm" data-a="impExtrato">Importar CSV</button></div>
+    <input type="file" id="fileExtrato" accept=".csv,text/csv,text/plain" hidden>`;
+  if (!ex.itens.length) return `<section>${topo}<div class="empty" style="margin-top:10px">Importe o extrato da sua conta (CSV com Data, Valor e Descrição, como o do Nubank). O app soma as entradas e saídas de cada dia no calendário e usa a média na projeção do mês.</div></section>`;
+  const doMes = ex.itens.filter(i => i.date.startsWith(mes)), a = agrega(doMes);
+  const cats = Object.keys(a.cat).filter(k => a.cat[k]).sort((x, y) => Math.abs(a.cat[y]) - Math.abs(a.cat[x]));
+  const mx = Math.max(1, ...cats.map(k => Math.abs(a.cat[k])));
+  return `<section>${topo}
+    ${doMes.length ? `<div class="grid g3" style="margin-top:10px"><div class="k"><span>Entradas</span><b class="pos">${fmt(a.entT)}</b></div><div class="k"><span>Saídas</span><b class="neg">${fmt(a.saiT)}</b></div><div class="k"><span>Resultado</span><b class="${a.res_ < 0 ? 'neg' : 'pos'}">${fmt(a.res_)}</b></div></div>
+    <details class="acc" open><summary>Por tipo de movimentação</summary>
+      ${cats.map(k => { const c = CAT[k]; return `<div class="catrow"><div class="cl"><span>${c.n} <small>${a.qtd[k]}×</small></span><b class="${a.cat[k] < 0 ? 'neg' : 'pos'}">${fmt(a.cat[k])}</b></div><div class="cbar"><i style="width:${Math.abs(a.cat[k]) / mx * 100}%;background:${CAT_COR[c.k]}"></i></div></div>`; }).join('')}
+      <div class="mut note">Estornos abatem as saídas${S.cfg.rdb ? '' : '. Aplicações e resgates (RDB) ficam fora dos totais'}.</div>
+    </details>` : `<div class="empty" style="margin-top:10px">Nenhum lançamento do extrato neste mês.</div>`}
+    <label class="chk"><input type="checkbox" data-a="rdbToggle" ${S.cfg.rdb ? 'checked' : ''}> Contar aplicações e resgates (RDB) como saídas e entradas</label>
+    <details class="acc"><summary>Arquivos importados (${ex.arquivos.length})</summary>
+      ${ex.arquivos.map(f => `<div class="mini"><div>${esc(f.nome)}<small>${fmtDate(f.de)} a ${fmtDate(f.ate)} · ${f.n} lançamentos</small></div><button class="ghost sm danger" data-a="rmExtrato" data-id="${f.id}">Remover</button></div>`).join('')}
+    </details></section>`;
+}
+
+/* fluxo bancário projetado: entradas por dia de trabalho × dias de trabalho restantes;
+   saídas por dia corrido × dias restantes. Base = últimos 30 dias do extrato. */
+function projFluxo(mesStr) {
+  const itens = S.extrato.itens; if (!itens.length) return null;
+  const [y, mo] = mesStr.split('-').map(Number), first = `${mesStr}-01`, last = ds(new Date(y, mo, 0));
+  let ultima = '0000-00-00', primeira = '9999-99-99';
+  itens.forEach(i => { if (i.date > ultima) ultima = i.date; if (i.date < primeira) primeira = i.date; });
+  const real = agrega(itens.filter(i => i.date >= first && i.date <= last));
+  const ini = addDays(ultima, -29), wIni = ini > primeira ? ini : primeira;
+  const base = agrega(itens.filter(i => i.date >= wIni && i.date <= ultima));
+  const dd = diaDates(); let wdB = 0, calB = 0;
+  for (let d = wIni; d <= ultima; d = addDays(d, 1)) { calB++; if (isWork(d, dd)) wdB++; }
+  const mEnt = wdB ? base.entT / wdB : 0, mSai = calB ? base.saiT / calB : 0;
+  const ps = ultima >= first ? addDays(ultima, 1) : first;
+  let wdR = 0, calR = 0;
+  for (let d = ps; d <= last; d = addDays(d, 1)) { calR++; if (isWork(d, dd)) wdR++; }
+  const entP = real.entT + Math.round(mEnt * wdR), saiP = real.saiT + Math.round(mSai * calR);
+  return { real, base, wIni, ultima, mEnt: Math.round(mEnt), mSai: Math.round(mSai), wdR, calR, entP, saiP, proj: calR > 0, ps };
+}
+function vFluxoProj() {
+  const P = projFluxo(mes); if (!P) return '';
+  if (!P.real.n && !P.proj) return '';
+  const c = P.proj, r = P.real;
+  const row = (l, a, b, cls = '') => `<tr class="${cls}"><td>${l}</td><td>${fmtN(a)}</td>${c ? `<td>${fmtN(b)}</td>` : ''}</tr>`;
+  const resP = P.entP - P.saiP;
+  return `<section class="proj"><h3>${c ? 'Projeção do fluxo bancário' : 'Fluxo bancário do mês'}</h3>
+    <div class="grid g3" style="margin-top:8px">
+      <div class="k"><span>Entradas${c ? ' (proj.)' : ''}</span><b class="pos">${fmt(c ? P.entP : r.entT)}</b></div>
+      <div class="k"><span>Saídas${c ? ' (proj.)' : ''}</span><b class="neg">${fmt(c ? P.saiP : r.saiT)}</b></div>
+      <div class="k"><span>Resultado${c ? ' (proj.)' : ''}</span><b class="${(c ? resP : r.res_) < 0 ? 'neg' : 'pos'}">${fmt(c ? resP : r.res_)}</b></div>
+    </div>
+    <details class="acc" open><summary>Detalhamento (R$)</summary>
+      <table class="ptab"><thead><tr><th></th><th>Extrato</th>${c ? '<th>Projeção</th>' : ''}</tr></thead><tbody>
+        ${row('Entradas', r.entT, P.entP, 'top')}
+        ${row('(−) Saídas', r.saiT, P.saiP)}
+        ${row('(=) Resultado', r.res_, resP, 'tot fin')}
+      </tbody></table>
+      ${c ? `<div class="mut note">Base: ${fmtDate(P.wIni)} a ${fmtDate(P.ultima)} do extrato — ${fmt(P.mEnt)} de entradas por dia de trabalho e ${fmt(P.mSai)} de saídas por dia. Estimado para ${P.wdR} dia${P.wdR === 1 ? '' : 's'} de trabalho e ${P.calR} dia${P.calR === 1 ? '' : 's'} sem extrato (de ${fmtDate(P.ps)} até o fim do mês).</div>` : ''}
+    </details></section>`;
+}
+
+function exTilesHtml() {
+  if (!S.extrato.itens.length) return '';
+  const a = agrega(S.extrato.itens.filter(i => i.date.startsWith(mes)));
+  if (!a.n) return '';
+  return `<div class="k"><span>Entradas (extrato)</span><b class="pos">${fmt(a.entT)}</b></div><div class="k"><span>Saídas (extrato)</span><b class="neg">${fmt(a.saiT)}</b></div>`;
+}
+function extratoDiaHtml(date) {
+  const itens = S.extrato.itens.filter(i => i.date === date);
+  if (!itens.length) return '';
+  const a = agrega(itens);
+  return `<div class="sep"></div><h3 style="font-size:15px">Extrato bancário</h3>
+    <div class="grid g3" style="margin:8px 0"><div class="k"><span>Entradas</span><b class="pos">${fmt(a.entT)}</b></div><div class="k"><span>Saídas</span><b class="neg">${fmt(a.saiT)}</b></div><div class="k"><span>Resultado</span><b class="${a.res_ < 0 ? 'neg' : 'pos'}">${fmt(a.res_)}</b></div></div>
+    ${itens.slice(0, 80).map(i => `<div class="mini"><div>${esc(i.d)}<small>${(CAT[i.cat] || {}).n || ''}</small></div><b class="${i.v < 0 ? 'neg' : 'pos'}">${fmt(i.v)}</b></div>`).join('')}
+    ${itens.length > 80 ? `<div class="mut note">+ ${itens.length - 80} lançamentos</div>` : ''}`;
+}
+
 function vSaldo() {
   const b = balances();
   return `<div class="card saldo"><div class="row"><div><small>Saldo livre atual</small><div class="bigv ${b.livre < 0 ? 'neg' : ''}">${fmt(b.livre)}</div></div>
@@ -580,7 +810,9 @@ function vMensal() {
   const nd = new Set(dias.map(e => e.date)).size;
   return `${monthNav('Mensal')}
   ${vSaldo()}
+  ${vExtrato()}
   ${vProj()}
+  ${vFluxoProj()}
   <section><h3>Realizado no mês</h3><div class="grid" style="margin-top:8px">
     <div class="k"><span>Faturamento</span><b>${fmt(rec)}</b></div>
     <div class="k"><span>Custo da mercadoria</span><b>${fmt(custo)}</b></div>
@@ -629,7 +861,7 @@ const quotaTotal = () => { const T = today(); return S.metas.reduce((a, m) => a 
 function vCal() {
   const [y, m] = mes.split('-').map(Number);
   const first = new Date(y, m - 1, 1), n = new Date(y, m, 0).getDate();
-  const T = today(), dd = diaDates();
+  const T = today(), dd = diaDates(), exDias = extratoDias();
   let h = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map(x => `<div class="h">${x}</div>`).join('');
   for (let i = 0; i < first.getDay(); i++) h += '<button class="void"></button>';
   let nw = 0;
@@ -642,16 +874,16 @@ function vCal() {
     const luc = dias.reduce((a, e) => a + e.lucro - e.despesas, 0);
     const due = S.metas.some(mt => mt.prazo === date);
     const st = w ? dayStats(date).res : '';
-    h += `<button class="${date === T ? 'today' : ''} ${dias.length ? 'has' : ''} ${w ? 'wk ' + st : 'off'} ${tag === 'extra' ? 'extra' : ''}" data-a="day" data-id="${date}">${d}${tag ? `<em>${tag}</em>` : ''}${dias.length ? `<small class="${luc < 0 ? 'neg' : ''}">${short(luc)}</small>` : ''}${due ? '<i></i>' : ''}</button>`;
+    h += `<button class="${date === T ? 'today' : ''} ${dias.length ? 'has' : ''} ${w ? 'wk ' + st : 'off'} ${tag === 'extra' ? 'extra' : ''}" data-a="day" data-id="${date}">${d}${tag ? `<em>${tag}</em>` : ''}${dias.length ? `<small class="${luc < 0 ? 'neg' : ''}">${short(luc)}</small>` : ''}${exDias[date] ? `<small class="ex ${exDias[date].res_ < 0 ? 'neg' : ''}">${kfmt(exDias[date].res_)}</small>` : ''}${due ? '<i></i>' : ''}</button>`;
   }
   return `${monthNav('Calendário')}
-  <div class="grid" style="margin-bottom:14px"><div class="k"><span>Dias de trabalho no mês</span><b>${nw}</b></div><div class="k"><span>Cota diária das metas</span><b>${fmt(quotaTotal())}</b></div></div>
+  <div class="grid" style="margin-bottom:14px"><div class="k"><span>Dias de trabalho no mês</span><b>${nw}</b></div><div class="k"><span>Cota diária das metas</span><b>${fmt(quotaTotal())}</b></div>${exTilesHtml()}</div>
   <div class="mut" style="font-size:14px">Dias de trabalho padrão</div>
   <div class="chips week" style="margin:8px 0 14px">${NOMES_DIA.map((nm, k) => `<button class="chip wd ${S.cfg.semana.includes(k) ? 'on' : ''}" data-a="semana" data-id="${k}">${nm}</button>`).join('')}</div>
   <div class="actions" style="margin:0 0 12px"><button class="${calEdit ? 'pri sm' : 'ghost'}" data-a="calEdit">${calEdit ? '✓ Editando dias' : 'Escolher dias'}</button><button class="ghost" data-a="resetMes">Restaurar padrão do mês</button></div>
   ${calEdit ? '<div class="gold" style="margin-bottom:10px;font-size:14px">Toque nos dias para alternar entre trabalho e folga. As metas são recalculadas a cada toque.</div>' : ''}
   <div class="cal">${h}</div>
-  <p class="mut" style="margin-top:14px;font-size:13px">Cinza = dia de trabalho · verde = meta do dia batida · vermelho = meta do dia não atingida · listrado = folga · “extra” = dia fora do padrão · número = lucro líquido · ● = prazo de meta. ${calEdit ? '' : 'Toque num dia para ver detalhes, marcar folga/extra ou lançar.'}</p>`;
+  <p class="mut" style="margin-top:14px;font-size:13px">Cinza = dia de trabalho · verde = meta do dia batida · vermelho = meta do dia não atingida · listrado = folga · “extra” = dia fora do padrão · número = lucro líquido · itálico = saldo do extrato (entradas − saídas) · ● = prazo de meta. ${calEdit ? '' : 'Toque num dia para ver detalhes, marcar folga/extra ou lançar.'}</p>`;
 }
 
 function render() {
@@ -711,27 +943,42 @@ function registrar() {
 function metaModal(id) {
   let m = S.metas.find(x => x.id === id);
   const t = m && m.serie ? S.recorrentes.find(x => x.id === m.serie) : null;
+  const fSel = !t ? 'nao' : t.tipo === 'dias' ? (t.cada === 7 ? '7' : t.cada === 14 ? '14' : 'custom') : 'mes';
+  const fCada = t && t.tipo === 'dias' ? t.cada : 14;
   const mo = modal(id ? 'Editar meta' : 'Nova meta', `
     <label>Nome<input name="nome" required value="${esc(m ? m.nome : '')}" placeholder="Ex.: Aluguel"></label>
     <label>Valor total (R$)<input name="valor" required inputmode="decimal" value="${m ? inp(m.valor) : ''}" placeholder="0,00"></label>
     ${m ? '' : `<label>Quanto já tem guardado (R$)<input name="guardado" inputmode="decimal" placeholder="0,00"></label>
-    <div class="mut note">O que você já separou entra como saldo desta meta e reduz a cota diária. Em metas recorrentes, vale só para o primeiro mês.</div>`}
+    <div class="mut note">O que você já separou entra como saldo desta meta e reduz a cota diária. Em metas recorrentes, vale só para o primeiro período.</div>`}
     <div class="two-in"><div><label>Início<input type="date" name="inicio" required value="${m ? m.inicio : today()}"></label></div>
     <div><label>Prazo (guardar até)<input type="date" name="prazo" required value="${m ? m.prazo : ''}"></label></div></div>
-    <label class="chk"><input type="checkbox" name="rec" ${t ? 'checked' : ''}> ↻ Repetir todo mês (mesmo valor e mesmas datas)</label>
-    <div class="mut note">Antes do início a meta não recebe nada. Em metas recorrentes, o início deve estar no mesmo mês do prazo ou no mês anterior.</div>`,
+    <label>↻ Repetir<select name="freq">
+      <option value="nao" ${fSel === 'nao' ? 'selected' : ''}>Não repetir</option>
+      <option value="mes" ${fSel === 'mes' ? 'selected' : ''}>Todo mês (mesmo valor e datas)</option>
+      <option value="7" ${fSel === '7' ? 'selected' : ''}>A cada 7 dias</option>
+      <option value="14" ${fSel === '14' ? 'selected' : ''}>A cada 14 dias</option>
+      <option value="custom" ${fSel === 'custom' ? 'selected' : ''}>A cada … dias (personalizado)</option>
+    </select></label>
+    <div id="cadaBox"><label>Repetir a cada quantos dias?<input type="number" name="cada" min="2" max="365" inputmode="numeric" value="${fCada}"></label></div>
+    <div class="mut note" id="freqNota"></div>`,
     f => {
       const valor = parseMoney(f.valor), nome = f.nome.trim();
       if (valor <= 0) { toast('Informe um valor maior que zero'); return false; }
       const novo = !m, guardado = novo ? parseMoney(f.guardado) : 0;
       if (guardado > valor) { toast('O valor já guardado não pode passar do valor da meta'); return false; }
       if (f.inicio > f.prazo) { toast('O início não pode ser depois do prazo'); return false; }
-      const rec = !!f.rec;
+      const freq = f.freq || 'nao', rec = freq !== 'nao';
       let dados = null;
-      if (rec) {
+      if (rec && freq === 'mes') {
         const mi = mesDe(f.inicio), mp = mesDe(f.prazo), ant = mesSeg(mi) === mp;
-        if (mi !== mp && !ant) { toast('Metas recorrentes: início no mesmo mês do prazo ou no mês anterior'); return false; }
-        dados = { nome, valor, diaInicio: Number(f.inicio.slice(8)), diaPrazo: Number(f.prazo.slice(8)), antes: ant };
+        if (mi !== mp && !ant) { toast('Metas mensais: início no mesmo mês do prazo ou no mês anterior'); return false; }
+        dados = { tipo: 'mes', nome, valor, diaInicio: Number(f.inicio.slice(8)), diaPrazo: Number(f.prazo.slice(8)), antes: ant };
+      } else if (rec) {
+        const cada = Math.round(freq === 'custom' ? Number(f.cada) : Number(freq));
+        if (!(cada >= 2 && cada <= 365)) { toast('Informe um intervalo entre 2 e 365 dias'); return false; }
+        const dur = diff(f.inicio, f.prazo);
+        if (dur >= cada) { toast(`O prazo precisa ser menos de ${cada} dias depois do início`); return false; }
+        dados = { tipo: 'dias', nome, valor, cada, dur, ancora: f.inicio };
       }
       if (m) { m.nome = nome; m.valor = valor; m.inicio = f.inicio; m.prazo = f.prazo; }
       else {
@@ -742,22 +989,37 @@ function metaModal(id) {
         }
       }
       if (rec) {
+        const chave = dados.tipo === 'dias' ? f.inicio : mesDe(f.prazo);
         let tp = t;
-        if (tp) Object.assign(tp, dados);
-        else { tp = { id: uid(), desde: mesDe(f.prazo), skip: [], ...dados }; S.recorrentes.push(tp); m.serie = tp.id; }
-        m.mref = mesDe(f.prazo);
+        if (tp) {
+          const mudouTipo = (tp.tipo || 'mes') !== dados.tipo;
+          ['diaInicio', 'diaPrazo', 'antes', 'cada', 'dur', 'ancora'].forEach(k => delete tp[k]);
+          Object.assign(tp, dados);
+          if (mudouTipo) { tp.desde = chave; tp.skip = []; }
+        } else { tp = { id: uid(), desde: chave, skip: [], ...dados }; S.recorrentes.push(tp); m.serie = tp.id; }
+        m.mref = chave;
         applyTemplateToOpen(tp, m.id);
       } else if (t) endSeries(t.id);
       save(); render();
       if (rec && !t) toast('Meta recorrente criada ↻');
     }, { extra: m ? '<button type="button" class="ghost danger" data-del>Excluir</button>' : '' });
+  // mostra/oculta o intervalo personalizado e explica a regra escolhida
+  const sel = mo.o.querySelector('[name=freq]'), box = mo.o.querySelector('#cadaBox'), nota = mo.o.querySelector('#freqNota');
+  const cadaIn = mo.o.querySelector('[name=cada]');
+  const atualiza = () => {
+    const v = sel.value; box.style.display = v === 'custom' ? '' : 'none';
+    nota.textContent = v === 'nao' ? 'Antes do início a meta não recebe nada.'
+      : v === 'mes' ? 'Todo mês a meta é criada de novo com o mesmo valor e as mesmas datas. O início deve estar no mesmo mês do prazo ou no mês anterior.'
+      : `A meta se repete a cada ${v === 'custom' ? (cadaIn.value || '…') : v} dias, contados a partir do início. O prazo precisa vir antes do próximo ciclo, ou seja, a menos dias do início do que o intervalo (ex.: início hoje, prazo em 13 dias, repete a cada 14).`;
+  };
+  sel.addEventListener('change', atualiza); cadaIn.addEventListener('input', atualiza); atualiza();
   const del = mo.o.querySelector('[data-del]');
   if (del) del.onclick = () => {
     if (!confirm('Excluir esta meta? O valor guardado volta para o saldo livre.')) return;
     const saved = sumM(m.id);
     if (saved) S.entries.push({ id: uid(), type: 'ajuste', date: today(), desc: `Meta "${m.nome}" excluída — valor devolvido ao saldo livre`, aloc: { m: { [m.id]: -saved }, c: {}, l: saved } });
     if (t) {
-      if (confirm('Esta meta é recorrente.\n\nOK = encerrar a recorrência (não criar nos próximos meses)\nCancelar = excluir só este mês e continuar nos próximos')) endSeries(t.id);
+      if (confirm('Esta meta é recorrente.\n\nOK = encerrar a recorrência (não criar nos próximos ciclos)\nCancelar = excluir só este ciclo e continuar nos próximos')) endSeries(t.id);
       else { t.skip = t.skip || []; t.skip.push(m.mref); }
     }
     S.metas = S.metas.filter(x => x.id !== m.id);
@@ -767,6 +1029,22 @@ function metaModal(id) {
 
 function tmplModal(id) {
   const t = S.recorrentes.find(x => x.id === id); if (!t) return;
+  if (t.tipo === 'dias') {
+    modal('Meta recorrente', `
+      <label>Nome<input name="nome" required value="${esc(t.nome)}"></label>
+      <label>Valor de cada ciclo (R$)<input name="valor" required inputmode="decimal" value="${inp(t.valor)}"></label>
+      <div class="two-in"><div><label>Repetir a cada (dias)<input name="cada" type="number" min="2" max="365" required value="${t.cada}"></label></div>
+      <div><label>Dias para guardar<input name="dias" type="number" min="1" max="365" required value="${t.dur + 1}"></label></div></div>
+      <div class="mut note">“Dias para guardar” vai do início ao prazo e precisa caber no intervalo. As alterações valem para as metas abertas e para os próximos ciclos. Metas já concluídas não mudam.</div>`,
+      f => {
+        const valor = parseMoney(f.valor), cada = Math.round(Number(f.cada)), dias = Math.round(Number(f.dias));
+        if (valor <= 0 || !(cada >= 2 && cada <= 365) || !(dias >= 1)) { toast('Confira valor, intervalo e dias para guardar'); return false; }
+        if (dias > cada) { toast('Os dias para guardar não podem passar do intervalo'); return false; }
+        Object.assign(t, { nome: f.nome.trim(), valor, cada, dur: dias - 1 });
+        applyTemplateToOpen(t); save(); render(); toast('Meta recorrente atualizada');
+      });
+    return;
+  }
   modal('Meta recorrente', `
     <label>Nome<input name="nome" required value="${esc(t.nome)}"></label>
     <label>Valor mensal (R$)<input name="valor" required inputmode="decimal" value="${inp(t.valor)}"></label>
@@ -872,6 +1150,7 @@ function dayModal(date) {
     ${ov !== undefined ? `<div class="mini"><div class="mut">Este dia foi alterado manualmente</div><button type="button" class="ghost sm" data-a="resetDay" data-id="${date}">Voltar ao padrão</button></div>` : ''}
     ${dueMetas.map(m => `<div class="mini"><div>🎯 Prazo da meta: ${esc(m.nome)}<small>${fmt(m.valor)}</small></div></div>`).join('')}
     ${es.map(e => { const d = entDesc(e); return `<div class="mini"><div>${d.t}<small>${d.s}</small></div><button type="button" class="ghost sm danger" data-del="${e.id}">Excluir</button></div>`; }).join('') || '<div class="empty" style="margin-top:8px">Sem lançamentos.</div>'}
+    ${extratoDiaHtml(date)}
     <div class="btns"><button type="button" class="pri" data-a="lancar" data-id="${date}">Lançar neste dia</button></div>`, null, { nosave: true });
   mo.o.addEventListener('click', e => {
     const id = e.target.dataset.del; if (!id) return;
@@ -929,6 +1208,16 @@ const actions = {
   dnext: () => { draft.date = addDays(draft.date, 1); render(); },
   novaMeta: () => metaModal(),
   saldo: () => saldoModal(),
+  impExtrato: () => $('#fileExtrato').click(),
+  rdbToggle: () => { S.cfg.rdb = !S.cfg.rdb; save(); render(); },
+  rmExtrato: id => {
+    const f = S.extrato.arquivos.find(x => x.id === id);
+    if (f && confirm(`Remover o extrato "${f.nome}" (${f.n} lançamentos)? Seus lançamentos manuais não mudam.`)) {
+      S.extrato.itens = S.extrato.itens.filter(i => i.arq !== id);
+      S.extrato.arquivos = S.extrato.arquivos.filter(x => x.id !== id);
+      save(); render(); toast('Extrato removido');
+    }
+  },
   editTmpl: id => tmplModal(id),
   endTmpl: id => { const t = S.recorrentes.find(x => x.id === id); if (t && confirm(`Encerrar a recorrência de "${t.nome}"? As metas já criadas continuam, mas não serão criadas novas.`)) { endSeries(id); save(); render(); toast('Recorrência encerrada'); } },
   editMeta: id => metaModal(id),
@@ -971,6 +1260,7 @@ document.addEventListener('focusin', e => { if (e.target.matches('.field input:n
 document.addEventListener('input', onField);
 document.addEventListener('change', e => {
   onField(e);
+  if (e.target.id === 'fileExtrato') { const fl = e.target.files[0]; e.target.value = ''; if (fl) importaExtrato(fl); return; }
   if (e.target.id === 'file') {
     const fl = e.target.files[0]; if (!fl) return;
     const rd = new FileReader();
