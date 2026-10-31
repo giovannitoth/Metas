@@ -482,3 +482,6 @@ button:active{transform:scale(.97)}
 .sheet #cadaBox label{margin-top:10px}
 .sheet #freqNota{margin-top:8px}
 .totmini{font-size:11px;color:var(--mut);margin-top:2px;letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.reco{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:8px 0 2px;padding:8px 12px;border-radius:12px;background:rgba(255,160,60,.14);border:1px dashed rgba(255,160,60,.5)}
+.reco span{font-size:13px;font-weight:600}.reco small{display:block;font-weight:400;font-size:11px;color:var(--mut)}
+.reco b{font-size:17px;white-space:nowrap}

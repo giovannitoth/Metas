@@ -327,6 +327,13 @@ function vInicio() {
   <details class="acc"><summary>Resumo financeiro de hoje</summary><div id="resumo"></div></details>`;
 }
 
+function recomendadoHtml(D) {
+  const ls = S.metas.map(m => metaInfo(m, D)).filter(i => i.status !== 'done' && !i.futuro);
+  const tot = isWork(D) ? ls.reduce((a, i) => a + (i.hoje || 0), 0) : 0;
+  if (!ls.length) return '';
+  return `<div class="reco"><span>Valor recomendado para o dia<small>${isWork(D) ? 'soma das metas do dia' : 'dia de folga'}</small></span><b>${fmt(tot)}</b></div>`;
+}
+
 function vEntrada() {
   return `
   <div class="card entry">
@@ -339,6 +346,7 @@ function vEntrada() {
     </div>
     <label>Dinheiro do dia (total recebido)</label>
     <div class="field lg">${ICON.cash}<span>R$</span><input inputmode="decimal" enterkeyhint="done" data-f="receita" placeholder="0,00" value="${esc(draft.receita)}"></div>
+    ${recomendadoHtml(draft.date)}
     <div id="calc1"></div>
     <details class="acc"><summary>Detalhes do lucro</summary><div id="det" class="brk"></div></details>
     <label class="chk"><input type="checkbox" data-f="usar" ${draft.usar ? 'checked' : ''}> Usar este custo unitário nos próximos dias</label>
