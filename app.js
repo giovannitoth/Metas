@@ -312,140 +312,21 @@ function dateLabel(d) {
   return fmtDate(d).slice(0, 5);
 }
 
-/* ---------- dashboard (tela inicial) ----------
-   Só lê os dados já existentes (entries/metas/caixinhas); nenhuma regra de cálculo é alterada. */
-let entOpen = false, chartMode = 'dia';
-const mesAnterior = ms => { const [y, m] = ms.split('-').map(Number), d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
-const diasNoMes = ms => { const [y, m] = ms.split('-').map(Number); return new Date(y, m, 0).getDate(); };
-const dnum = d => Number(d.slice(8));
-
-/* totais das entradas do dia de um mês (até o dia `ate`, opcional) — mesma conta da aba Mensal */
-function mesStats(ms, ate = 99) {
-  const o = { rec: 0, custo: 0, desp: 0, lucro: 0, n: 0 };
-  S.entries.forEach(e => {
-    if (e.type !== 'dia' || !e.date.startsWith(ms) || dnum(e.date) > ate) return;
-    o.rec += e.receita; o.custo += e.custoTotal; o.desp += e.despesas; o.lucro += e.lucro - e.despesas; o.n++;
-  });
-  return o;
-}
-/* série para o gráfico: por dia do mês ou por semana (1–7, 8–14, …) */
-function serieGrafico(ms, modo) {
-  const n = diasNoMes(ms), tam = modo === 'sem' ? Math.ceil(n / 7) : n;
-  const rec = Array(tam).fill(0), luc = Array(tam).fill(0);
-  S.entries.forEach(e => {
-    if (e.type !== 'dia' || !e.date.startsWith(ms)) return;
-    const k = modo === 'sem' ? Math.floor((dnum(e.date) - 1) / 7) : dnum(e.date) - 1;
-    rec[k] += e.receita; luc[k] += e.lucro - e.despesas;
-  });
-  return { rec, luc };
-}
-const dPct = (a, b) => b === 0 ? null : Math.round((a - b) / Math.abs(b) * 100);
-const deltaHtml = (a, b, rotulo) => {
-  const p = dPct(a, b);
-  if (p === null) return `<span class="dl0">${a === 0 ? 'sem dados' : 'sem base'}</span>`;
-  return `<span class="dl ${p > 0 ? 'up' : p < 0 ? 'dn' : ''}">${p > 0 ? '▲' : p < 0 ? '▼' : '='} ${Math.abs(p)}%</span>`;
-};
-
-function dashResumo() {
-  const b = balances(), T = today(), atual = mes === T.slice(0, 7);
-  const ant = mesAnterior(mes), cur = mesStats(mes), pv = mesStats(ant, atual ? dnum(T) : 99);
-  const rot = fmtMes(ant).split(' ')[0].slice(0, 3) + '.';
-  const guardado = b.metas + b.cx;
-  return `<div class="dsum">
-    <div class="dk big"><span>Faturamento do mês</span><b>${fmt(cur.rec)}</b><div class="cmp">${deltaHtml(cur.rec, pv.rec, rot)}<small>vs. ${atual ? 'mesmo período · ' : ''}${rot}</small></div></div>
-    <div class="dk big"><span>Lucro líquido</span><b class="${cur.lucro < 0 ? 'neg' : ''}">${fmt(cur.lucro)}</b><div class="cmp">${deltaHtml(cur.lucro, pv.lucro, rot)}<small>vs. ${atual ? 'mesmo período · ' : ''}${rot}</small></div></div>
-    <div class="dk"><span>Saldo livre</span><b class="${b.livre < 0 ? 'neg' : ''}">${fmt(b.livre)}</b></div>
-    <div class="dk"><span>Total guardado</span><b>${fmt(guardado)}</b><small>metas + caixinhas</small></div>
-  </div>
-  <div class="fisico"><button type="button" data-a="ajFisico">Dinheiro físico <b>${fmt(b.fisico)}</b> ✎</button></div>`;
-}
-
-function dashDia() {
-  const T = today(), es = S.entries.filter(e => e.date === T && e.type === 'dia');
-  const sm = f => es.reduce((a, e) => a + f(e), 0);
-  const lucro = sm(e => e.lucro - e.despesas);
-  return `<div class="dcard dday"><div class="dh"><h3>Resumo do dia</h3><small>${dateLabel(T)}</small></div>
-    ${es.length ? `<div class="drow3"><div><span>Entradas</span><b>${es.length}</b></div><div><span>Faturamento</span><b>${fmt(sm(e => e.receita))}</b></div><div><span>Lucro líquido</span><b class="${lucro < 0 ? 'neg' : ''}">${fmt(lucro)}</b></div></div>
-      <div class="dmut">Custo ${fmt(sm(e => e.custoTotal))} · Despesas ${fmt(sm(e => e.despesas))}</div>`
-      : '<div class="dmut">Nenhuma entrada registrada hoje.</div>'}
-    <button class="dcta" data-a="abrirEntrada">${ICON.cash}<span>Registrar faturamento</span></button></div>`;
-}
-
-function dashAlertas() {
-  const T = today(), al = [];
-  S.metas.forEach((m, k) => {
-    const i = metaInfo(m, T);
-    if (i.status === 'late') al.push({ t: 'bad', h: `${esc(m.nome)} está vencida`, s: `Faltam ${fmt(i.rem)} · prazo ${fmtDate(m.prazo).slice(0, 5)}` });
-    else if (i.status === 'behind') al.push({ t: 'warn', h: `${esc(m.nome)} está atrasada`, s: `Faltam ${fmt(i.rem)} · prazo ${fmtDate(m.prazo).slice(0, 5)}` });
-    else if (i.status !== 'done' && !i.futuro && i.pct >= 80) al.push({ t: 'ok', h: `${esc(m.nome)} quase lá — ${i.pct}%`, s: `Faltam só ${fmt(i.rem)}` });
-  });
-  const cur = mesStats(mes);
-  if (cur.rec > 0 && cur.desp > 0 && cur.desp / cur.rec >= 0.2) al.push({ t: 'warn', h: 'Despesas elevadas no mês', s: `${fmt(cur.desp)} = ${Math.round(cur.desp / cur.rec * 100)}% do faturamento` });
-  const b = balances();
-  if (b.livre < 0) al.push({ t: 'bad', h: 'Saldo livre negativo', s: `${fmt(b.livre)} — revise as caixinhas ou retiradas` });
-  const ord = { bad: 0, warn: 1, ok: 2 }; al.sort((a, c) => ord[a.t] - ord[c.t]);
-  return `<div class="dcard"><div class="dh"><h3>Alertas</h3><small>${al.length ? al.length + (al.length > 1 ? ' avisos' : ' aviso') : ''}</small></div>
-    ${al.length ? al.map(a => `<div class="dal ${a.t}"><i></i><div><b>${a.h}</b><small>${a.s}</small></div></div>`).join('') : '<div class="dmut">Tudo em dia — nenhum alerta no momento.</div>'}</div>`;
-}
-
-function dashMetas() {
-  const T = today();
-  if (!S.metas.length) return `<div class="dcard"><div class="dh"><h3>Metas financeiras</h3></div><div class="dmut">Você ainda não tem metas.</div><button class="link" data-a="tab" data-id="metas">Criar meta ›</button></div>`;
-  return `<div class="dcard"><div class="dh"><h3>Metas financeiras</h3><button class="link sm" data-a="tab" data-id="metas">Ver todas ›</button></div>
-    ${S.metas.map((m, k) => { const i = metaInfo(m, T);
-      return `<div class="dmeta" style="${pstyle(k)}"><div class="dmt"><span class="dmn"><i class="pd">${i.status === 'done' ? '✓' : 'P' + (k + 1)}</i>${m.serie ? '↻ ' : ''}${esc(m.nome)}</span><b>${i.pct}%</b></div>
-        <div class="dbar"><i style="width:${i.pct}%"></i></div>
-        <div class="dms"><span>Acumulado <b>${fmt(i.saved)}</b></span><span>${i.status === 'done' ? 'Concluída' : 'Falta <b>' + fmt(i.rem) + '</b>'}</span></div></div>`; }).join('')}</div>`;
-}
-
-function dashGrafico() {
-  const { rec, luc } = serieGrafico(mes, chartMode), n = rec.length;
-  const tem = rec.some(v => v) || luc.some(v => v);
-  const tabs = `<div class="seg" role="tablist"><button data-a="grafModo" data-id="dia" class="${chartMode === 'dia' ? 'on' : ''}">Diário</button><button data-a="grafModo" data-id="sem" class="${chartMode === 'sem' ? 'on' : ''}">Semanal</button></div>`;
-  if (!tem) return `<div class="dcard"><div class="dh"><h3>Faturamento e lucro</h3>${tabs}</div><div class="dmut">Sem entradas em ${fmtMes(mes)}.</div></div>`;
-  const W = 320, H = 130, top = 8, bot = 18, h = H - top - bot;
-  const max = Math.max(...rec, ...luc, 1), min = Math.min(0, ...luc);
-  const y = v => top + h - (v - min) / (max - min) * h, y0 = y(0), sw = W / n;
-  const bars = rec.map((v, k) => v > 0 ? `<rect class="gb" style="animation-delay:${Math.min(k * 12, 400)}ms" x="${(k * sw + sw * .18).toFixed(1)}" y="${y(v).toFixed(1)}" width="${(sw * .64).toFixed(1)}" height="${Math.max(1, y0 - y(v)).toFixed(1)}" rx="2"><title>${chartMode === 'sem' ? 'Semana ' + (k + 1) : 'Dia ' + (k + 1)}: ${fmt(v)}</title></rect>` : '').join('');
-  const pts = luc.map((v, k) => [k * sw + sw / 2, y(v), v, k]);
-  const linha = pts.filter(p => rec[p[3]] || p[2]).map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
-  const dots = pts.filter(p => rec[p[3]] || p[2]).map(p => `<circle class="gl" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.6"><title>Lucro ${fmt(p[2])}</title></circle>`).join('');
-  const passo = chartMode === 'sem' ? 1 : (n > 28 ? 5 : 4);
-  const rot = Array.from({ length: n }, (_, k) => k).filter(k => chartMode === 'sem' || k === 0 || (k + 1) % passo === 0)
-    .map(k => `<text x="${(k * sw + sw / 2).toFixed(1)}" y="${H - 4}" text-anchor="middle">${chartMode === 'sem' ? 'S' + (k + 1) : k + 1}</text>`).join('');
-  const totR = rec.reduce((a, v) => a + v, 0), totL = luc.reduce((a, v) => a + v, 0);
-  return `<div class="dcard"><div class="dh"><h3>Faturamento e lucro</h3>${tabs}</div>
-    <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Gráfico ${chartMode === 'sem' ? 'semanal' : 'diário'} de faturamento e lucro de ${fmtMes(mes)}. Faturamento ${fmt(totR)}, lucro ${fmt(totL)}.">
-      <line class="ax" x1="0" x2="${W}" y1="${y0.toFixed(1)}" y2="${y0.toFixed(1)}"/>${bars}
-      <polyline class="gl-l" points="${linha}"/>${dots}<g class="lb">${rot}</g></svg>
-    <div class="leg"><span><i class="sw1"></i>Faturamento <b>${fmt(totR)}</b></span><span><i class="sw2"></i>Lucro líquido <b class="${totL < 0 ? 'neg' : ''}">${fmt(totL)}</b></span></div></div>`;
-}
-
-function dashDistrib() {
-  const b = balances(), emp = sumC(EMPRESA);
-  const seg = [['Metas', b.metas, '#D9A93A'], ['Caixinhas', b.cx - emp, '#CDB98A'], ['Caixa da Empresa', emp, '#A3202F'], ['Saldo livre', Math.max(0, b.livre), '#8F8672']];
-  const tot = seg.reduce((a, s) => a + Math.max(0, s[1]), 0);
-  if (tot <= 0) return `<div class="dcard"><div class="dh"><h3>Distribuição do dinheiro</h3></div><div class="dmut">Ainda não há dinheiro distribuído.</div></div>`;
-  return `<div class="dcard"><div class="dh"><h3>Distribuição do dinheiro</h3><small>Total ${fmt(tot)}</small></div>
-    <div class="stack" role="img" aria-label="Distribuição: ${seg.map(s => s[0] + ' ' + fmt(s[1])).join(', ')}">${seg.filter(s => s[1] > 0).map(s => `<i style="flex:${s[1]};background:${s[2]}" title="${s[0]}: ${fmt(s[1])}"></i>`).join('')}</div>
-    <div class="dleg">${seg.map(s => `<div><span><i style="background:${s[2]}"></i>${s[0]}</span><b>${fmt(s[1])}</b><small>${tot ? Math.round(Math.max(0, s[1]) / tot * 100) : 0}%</small></div>`).join('')}</div></div>`;
-}
-
-function vDash() {
-  return `<div class="dash">
-    <div class="monthnav"><button data-a="mesPrev" aria-label="Mês anterior">‹</button><b>${fmtMes(mes)}</b><button data-a="mesNext" aria-label="Próximo mês">›</button></div>
-    ${dashResumo()}${dashDia()}${dashAlertas()}${dashMetas()}${dashGrafico()}${dashDistrib()}</div>`;
-}
-
 function vInicio() {
+  const b = balances();
   return `
-  <header class="top row"><div><h1>Metas Financeiras</h1><div class="sub">${fmtLong(today())}</div></div>
+  <header class="top row"><div><h1>Metas Financeiras</h1><div class="sub">${fmtLong(today())}</div><div class="totmini">Total ${fmt(b.livre + b.metas + b.cx)}</div></div>
     <button class="themebtn" data-a="tema" aria-label="Alternar modo escuro">${curTheme() === 'dark' ? ICON.sun : ICON.moon}</button></header>
-  ${vDash()}
-  <details class="acc entbox" id="entryBox" ${entOpen ? 'open' : ''}><summary>Registrar entrada do dia</summary>${vEntrada()}</details>
+  <div class="stats">
+    <div class="t1"><span>Saldo livre</span><b>${fmt(b.livre)}</b></div>
+    <div class="t2"><span>Em metas</span><b>${fmt(b.metas)}</b></div>
+    <div class="t3"><span>Caixinhas</span><b>${fmt(b.cx)}</b></div>
+  </div>
+  <div class="fisico"><button type="button" data-a="ajFisico">Dinheiro físico <b>${fmt(b.fisico)}</b> ✎</button></div>
+  ${vEntrada()}
   ${vMetasHoje()}
   ${vCaixinhas()}
-`;
+  <details class="acc"><summary>Resumo financeiro de hoje</summary><div id="resumo"></div></details>`;
 }
 
 function recomendadoHtml(D) {
@@ -1065,7 +946,6 @@ function registrar() {
     custoTotal: r.custoTotal, lucro: r.lucro, despesas: d.despesas, obs: draft.obs.trim(),
     aloc: { m: r.m, c: r.c, l: r.livre }
   });
-  entOpen = false;
   S.cfg.usar = !!draft.usar; S.cfg.custo = draft.usar ? d.custo : 0;
   save();
   const keep = draft.usar;
@@ -1465,15 +1345,12 @@ const actions = {
   calEdit: () => { calEdit = !calEdit; render(); },
   resetMes,
   lancar: date => { closeModals(); draft.date = date; tab = 'inicio'; render(); window.scrollTo(0, 0); },
-  abrirEntrada: () => { entOpen = true; const d = $('#entryBox'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTimeout(() => { const f = $('[data-f=receita]'); if (f) f.focus({ preventScroll: true }); }, 350); } },
-  grafModo: id => { chartMode = id; render(); },
   mesPrev: () => shiftMes(-1),
   mesNext: () => shiftMes(1),
   export: exportar,
   import: () => $('#file').click()
 };
 
-document.addEventListener('toggle', e => { if (e.target.id === 'entryBox') entOpen = e.target.open; }, true);
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-a]');
   if (!b || b.disabled) return;
