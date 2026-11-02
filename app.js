@@ -963,7 +963,8 @@ function metaModal(id) {
   const mo = modal(id ? 'Editar meta' : 'Nova meta', `
     <label>Nome<input name="nome" required value="${esc(m ? m.nome : '')}" placeholder="Ex.: Aluguel"></label>
     <label>Valor total (R$)<input name="valor" required inputmode="decimal" value="${m ? inp(m.valor) : ''}" placeholder="0,00"></label>
-    ${m ? '' : `<label>Quanto já tem guardado (R$)<input name="guardado" inputmode="decimal" placeholder="0,00"></label>
+    ${m ? `<label>Já guardado nesta meta (R$)<input name="guardado" inputmode="decimal" value="${inp(sumM(m.id))}" placeholder="0,00"></label>
+    <div class="mut note">Corrija aqui o valor que já está separado. A diferença não mexe no saldo livre, só ajusta a meta e a cota diária.</div>` : `<label>Quanto já tem guardado (R$)<input name="guardado" inputmode="decimal" placeholder="0,00"></label>
     <div class="mut note">O que você já separou entra como saldo desta meta e reduz a cota diária. Em metas recorrentes, vale só para o primeiro período.</div>`}
     <div class="two-in"><div><label>Início<input type="date" name="inicio" required value="${m ? m.inicio : today()}"></label></div>
     <div><label>Prazo (guardar até)<input type="date" name="prazo" required value="${m ? m.prazo : ''}"></label></div></div>
@@ -979,7 +980,7 @@ function metaModal(id) {
     f => {
       const valor = parseMoney(f.valor), nome = f.nome.trim();
       if (valor <= 0) { toast('Informe um valor maior que zero'); return false; }
-      const novo = !m, guardado = novo ? parseMoney(f.guardado) : 0;
+      const novo = !m, guardado = parseMoney(f.guardado);
       if (guardado > valor) { toast('O valor já guardado não pode passar do valor da meta'); return false; }
       if (f.inicio > f.prazo) { toast('O início não pode ser depois do prazo'); return false; }
       const freq = f.freq || 'nao', rec = freq !== 'nao';
@@ -995,8 +996,11 @@ function metaModal(id) {
         if (dur >= cada) { toast(`O prazo precisa ser menos de ${cada} dias depois do início`); return false; }
         dados = { tipo: 'dias', nome, valor, cada, dur, ancora: f.inicio };
       }
-      if (m) { m.nome = nome; m.valor = valor; m.inicio = f.inicio; m.prazo = f.prazo; }
-      else {
+      if (m) {
+        m.nome = nome; m.valor = valor; m.inicio = f.inicio; m.prazo = f.prazo;
+        const dif = guardado - sumM(m.id);
+        if (dif !== 0) S.entries.push({ id: uid(), type: 'ajuste', date: [today(), addDays(f.inicio, -1)].sort()[0], desc: `Ajuste do guardado na meta "${nome}": ${fmt(guardado)}`, aloc: { m: { [m.id]: dif }, c: {}, l: 0 } });
+      } else {
         m = { id: uid(), nome, valor, prazo: f.prazo, inicio: f.inicio }; S.metas.push(m);
         if (guardado > 0) {                         // saldo inicial da meta: datado antes do início para não contar como cota do dia
           const d0 = [today(), addDays(f.inicio, -1)].sort()[0];
